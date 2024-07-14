@@ -1,11 +1,28 @@
+mod transformer;
+mod tokenizer;
 mod functional;
 
+use tokenizer::Tokenizer;
+use std::env;
+
 fn main() {
-    let mut a: [f32; 5] = [1.0, 2.0, 3.0, 4.0, 6.0];
+    let args: Vec<String> = env::args().collect();
+    let model_path: &str = &args[1];
 
-    functional::softmax(&mut a);
+    println!("{}", model_path);
 
-    for i in a.iter() {
-        println!("{}", i)
+    //io::parse_model(model_path);
+
+    //Load tokenizer;
+    let mut t = Tokenizer::new("tokenizer.bin");
+
+    let tokens = t.encode("This message is tokenized! さあ行こう", true, false);
+
+    println!("{:?}", tokens);
+
+    for i in 1..tokens.len() {
+        print!("{}", t.decode(tokens[i-1], tokens[i]));
     }
+
+    println!("");
 }
