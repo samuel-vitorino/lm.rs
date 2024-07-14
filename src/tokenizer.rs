@@ -1,5 +1,5 @@
-use functional::slice_to_u32;
-use functional::slice_to_f32;
+use crate::functional::slice_to_u32;
+use crate::functional::slice_to_f32;
 use std::fs;
 
 #[derive(Debug, Clone)]

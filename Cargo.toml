@@ -1,0 +1,8 @@
+[package]
+name = "llmrs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+memmap2 = "0.9.4"
+rayon = "1.10.0"
