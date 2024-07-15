@@ -5,6 +5,7 @@ use crate::functional::matmul;
 use crate::functional::softmax;
 use crate::functional::tanh;
 use std::fs::File;
+use half::f16;
 use memmap2::Mmap;
 
 #[repr(C, packed)]
@@ -69,8 +70,8 @@ impl<'a> Transformer<'a> {
         let lmrs_version = slice_to_u32(&data[4..8]);
 
         println!("LMRS version: {}", lmrs_version);
-
-        let (head, body, _) = unsafe { data[8..64].align_to::<TranformerArgs>() };
+        
+        let (head, body, _) = unsafe { data[8..36].align_to::<TranformerArgs>() };
 
         assert!(head.is_empty(), "Data was not aligned");
         
@@ -80,9 +81,9 @@ impl<'a> Transformer<'a> {
         
         let head_size = cfg.dim/cfg.n_heads;
 
-        let emb_tab = &data[64..(64 + (cfg.vocab_size* cfg.dim * 4)) as usize];
+        let emb_tab = &data[36..(36 + (cfg.vocab_size* cfg.dim * 4)) as usize];
 
-        let mut offset: usize = (64 + cfg.vocab_size * cfg.dim) as usize;
+        let mut offset: usize = (36 + (cfg.vocab_size * cfg.dim * 4)) as usize;
 
         // Attention weights
         let rms_att = &data[offset..offset + (cfg.n_layers * cfg.dim * 4) as usize];
@@ -176,15 +177,29 @@ impl<'a> Transformer<'a> {
         let head_size = dim / p.n_heads;
 
         x.copy_from_slice(&w.token_embedding_table[(token * dim) as usize..(token * dim + dim) as usize]);
+        //println!("x - {} {} {}", x[0], x[1], x[2]);
+        let normalizer: f32 = f32::from(f16::from_f32((dim as f32).sqrt()));
+
+
+        for i in x.iter_mut() {
+            *i *= normalizer;
+        }
+        //println!("HNORM {}", normalizer);
+
+
 
         for l in 0..p.n_layers {
+            //println!("l - {} x - {} {} {}", l, x[0], x[1], x[2]);
             rmsnorm(&mut s.xb, x, &w.w_rms_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
+            //println!("wnorminp - {} {} {}", w.w2[0], w.w2[1], w.w2[2]);
 
             let loff = l * p.seq_len * kv_dim; 
             let mut k = &mut s.key_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
             let mut v = &mut s.value_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
             
             matmul(&mut s.q, &s.xb, &w.wq[(l*dim*dim) as usize..(l*dim*dim + dim*dim) as usize]);
+            //println!("wq - {} {} {}", w.wq[0], w.wq[1], w.wq[2]);
+            //println!("wo - {} {} {} {}", l*dim*dim, w.wo[0], w.wo[1], w.wo[2]);
             matmul(k, &s.xb, &w.wk[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
             matmul(v, &s.xb, &w.wv[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
             
@@ -205,6 +220,9 @@ impl<'a> Transformer<'a> {
                     vec[(i+1) as usize] = v0 * fci + v1 * fcr;
                 }
             }
+            
+            //println!("q - {} {} {}", s.q[0], s.q[1], s.q[2]);
+            //println!("k - {} {} {}", k[0], k[1], k[2]);
 
             for h in 0..p.n_heads {
                 let q = &mut s.q[(h*head_size) as usize..(h*head_size + head_size) as usize];
@@ -221,7 +239,7 @@ impl<'a> Transformer<'a> {
                     }
 
                     score /= (head_size as f32).sqrt();
-                    
+ 
                     att[t as usize] = score;
                 }
             
@@ -235,7 +253,6 @@ impl<'a> Transformer<'a> {
                     v = &mut s.value_cache[(loff + t * kv_dim + (h / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h / kv_mul) * head_size + head_size) as usize];
                     let a = att[t as usize];
 
-
                     for i in 0..head_size {
                         xb[i as usize] += a * v[i as usize];
                     }
@@ -243,6 +260,7 @@ impl<'a> Transformer<'a> {
             }
             
             matmul(&mut s.xb2, &s.xb, &w.wo[(l*dim*dim) as usize..(l*dim*dim + dim*dim) as usize]);
+            //println!("outoo - {} {} {}", s.xb2[0], s.xb2[1], s.xb2[2]);
             
             for i in 0..dim {
                 x[i as usize] += s.xb2[i as usize];
@@ -250,32 +268,41 @@ impl<'a> Transformer<'a> {
 
             rmsnorm(&mut s.xb, x, &w.w_rms_ffn[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
             
-            //GeGLU is w3(w1(x) * GELU(w2(x))))
-            matmul(&mut s.hb, &s.xb, &w.w2[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+            //println!("after norm - {} {} {}", s.xb[0], s.xb[1], s.xb[2]);
+
+            //GeGLU 
+            matmul(&mut s.hb, &s.xb, &w.w1[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
             matmul(&mut s.hb2, &s.xb, &w.w3[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
             
             for i in 0..hidden_dim {
                 let mut val = s.hb[i as usize];
                 
-                val *= 0.5 * (1.0 + tanh((2.0/std::f32::consts::PI).sqrt() * (val + 0.044715 * val * val * val)));
+                val *= 0.5 * (1.0 + ((0.7978845608028654 * (val + 0.044715 * val * val * val) as f64).tanh()) as f32);
                 
                 //val *= (1.0 / (1.0 + (-val).exp()));
 
                 val *= s.hb2[i as usize];
-
+                
                 s.hb[i as usize] = val;
             }
             
-            matmul(&mut s.xb, &s.hb, &w.w1[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+            matmul(&mut s.xb, &s.hb, &w.w2[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+            //println!("after mlp - {} {} {}", s.xb[0], s.xb[1], s.xb[2]);
+            
+            //println!("xb - {} {} {}", s.xb[0], s.xb[1], s.xb[2]);
+            //println!("w2 - {} {} {}", w.w2[0]*s.hb[0], w.w1[1], w.w1[2]);
             
             for i in 0..dim {
                 x[i as usize] += s.xb[i as usize];
             }
+            //println!("xout - {} {} {}", x[0], x[1], x[2]);
         }
 
         s.xb.copy_from_slice(x);
 
         rmsnorm(x, &s.xb, &w.w_rms_final, dim as usize);
+        
+        //println!("after final norm - {} {} {}", x[0], x[1], x[2]);
 
 
         matmul(&mut s.logits, &x, &w.w_cls);

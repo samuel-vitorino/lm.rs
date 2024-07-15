@@ -1,6 +1,8 @@
 use llmrs::transformer::Transformer;
 use llmrs::tokenizer::Tokenizer;
 use llmrs::functional::sample;
+use llmrs::functional::tanh;
+use llmrs::functional::rmsnorm;
 
 use std::env;
 use std::io;
@@ -14,7 +16,7 @@ fn main() {
     let model_path: &str = &args[1];
 
     let mut tokenizer = Tokenizer::new("tokenizer.bin");
-        
+
     let file = File::open(model_path).expect("Model file required");
     let data = unsafe { Mmap::map(&file).expect("MMap failed")  };
 
@@ -40,7 +42,8 @@ fn main() {
 
             io::stdin().read_line(&mut user_prompt).expect("Failed to read line");
 
-            prompt_tokens = tokenizer.encode(user_prompt.trim(), false, false, false);
+            prompt_tokens = tokenizer.encode(user_prompt.trim(), true, false, false);
+            println!("tokens - {:?}", prompt_tokens);
             num_prompt_tokens = prompt_tokens.len();
 
             user_turn = false; 

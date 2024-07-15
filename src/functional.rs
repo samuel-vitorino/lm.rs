@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 use rayon::prelude::*;
+use half::f16;
 
 pub fn slice_to_u32(slice: &[u8]) -> u32 {
     assert!(slice.len() == 4, "Slice must be exactly 4 bytes long");
@@ -26,17 +27,16 @@ pub fn u8_to_f32_slice(data: &[u8]) -> &[f32] {
 pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize) {
     let mut ss = 0.0;
 
-    // Rust compiler unrolls this hopefully so we dont need size
     for j in 0..size {
         ss += x[j] * x[j]
     } 
 
     ss /= size as f32;
-    ss += 1e-5;
+    ss += 1e-6;
     ss = 1.0 / ss.sqrt();
 
     for j in 0..size {
-        o[j] = weight[j] * (ss * x[j])
+        o[j] = (1.0f32 + weight[j]) * (ss * x[j])
     } 
 }
 
@@ -61,7 +61,7 @@ pub fn softmax(x: &mut [f32]){
 }
 
 pub fn tanh(x: f32) -> f32 {
-    (x.exp() / (-x).exp())/(x.exp() + (-x).exp())
+    (x.exp() - (-x).exp())/(x.exp() + (-x).exp())
 }
 
 pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
@@ -71,6 +71,20 @@ pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
         *val = (0..n).map(|j| w[i * n + j] * x[j]).sum();
     });
 }
+
+pub fn matmul_test(xout: &mut [f32], x: &[f32], w: &[f32], n: usize, d: usize) {
+    for i in 0..d{
+        let mut val: f32 = 0.0;
+
+        for j in 0..20 {
+            val += w[i * n + j] * x[j];
+        }
+        println!("VAL - {}", val);
+        xout[i] = val;
+    }
+}
+
+
 
 fn sample_argmax(probabilities: &[f32]) -> u32 {
     let mut max_i: u32 = 0;
@@ -83,7 +97,7 @@ fn sample_argmax(probabilities: &[f32]) -> u32 {
         }
     }
 
-    println!("{}", max_p);
+    //println!("{} {}", max_i, max_p);
 
     return max_i;
 }
