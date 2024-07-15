@@ -63,7 +63,7 @@ impl Tokenizer {
         }
     }
 
-    pub fn encode(&mut self, text: &str, bos: bool, eos: bool) -> Vec<u32> {
+    pub fn encode(&mut self, text: &str, bos: bool, eos: bool, chat_format: bool) -> Vec<u32> {
         assert!(!text.is_empty(), "Text to encode should not be empty");
 
         if self.sorted_vocab.is_empty() {
@@ -85,12 +85,16 @@ impl Tokenizer {
             tokens.push(2)
         }
 
-        if text != "" {
-            match self.sorted_vocab.binary_search_by(|token| token.text.cmp(&String::from(" "))) {
-                Ok(index) => tokens.push(self.sorted_vocab[index].id),
-                Err(_) => println!("Dummy prefix token not found"),
-            }
+        if chat_format {
+            tokens.extend(&[106, 1645, 108]);
         }
+
+        //if text != "" {
+        //    match self.sorted_vocab.binary_search_by(|token| token.text.cmp(&String::from(" "))) {
+        //        Ok(index) => tokens.push(self.sorted_vocab[index].id),
+        //        Err(_) => println!("Dummy prefix token not found"),
+        //    }
+        //}
 
         for c in text.chars() {
             let c_str = c.to_string();
@@ -131,6 +135,10 @@ impl Tokenizer {
             tokens[best_idx as usize] = best_id;
             tokens.remove((best_idx+1) as usize);
         }
+        
+        if chat_format {
+            tokens.extend(&[107, 108, 106, 2516, 108]);
+        }
 
         if eos {
             tokens.push(1)
@@ -139,12 +147,8 @@ impl Tokenizer {
         return tokens;
     }
 
-    pub fn decode(&self, prev_token: u32, token: u32) -> &str {
+    pub fn decode(&self, token: u32) -> &str {
         let mut piece = self.vocab[token as usize].as_str();
-        
-        if prev_token == 2 && piece.starts_with(' ') {
-            piece = &piece[1..];
-        }
         
         if piece.starts_with("<0x") && piece.ends_with('>') && piece.len() == 6 {
             if let Ok(byte_val) = u8::from_str_radix(&piece[3..5], 16) {

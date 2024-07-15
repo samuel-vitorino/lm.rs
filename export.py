@@ -68,8 +68,8 @@ if __name__ == "__main__":
         
         # FFN weights
         write_tensors_by_group(files, "post_attention_layernorm", out_file)
-        write_tensors_by_group(files, "mlp.down_proj", out_file)
         write_tensors_by_group(files, "mlp.gate_proj", out_file)
+        write_tensors_by_group(files, "mlp.down_proj", out_file)
         write_tensors_by_group(files, "mlp.up_proj", out_file)
          
         # Final norm weights

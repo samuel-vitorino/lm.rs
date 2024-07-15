@@ -36,27 +36,58 @@ pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize) {
     ss = 1.0 / ss.sqrt();
 
     for j in 0..size {
-        o[j] += weight[j] * (ss * x[j])
+        o[j] = weight[j] * (ss * x[j])
     } 
 }
 
 pub fn softmax(x: &mut [f32]){
     let mut sum: f32 = 0.0;
+    let mut max_val: f32 = x[0];
+
+    for i in x.iter() {
+        if *i > max_val {
+            max_val = *i;
+        }
+    }
 
     for i in x.iter_mut() {
-        *i = i.exp();
+        *i = (*i - max_val).exp();
         sum += *i;
     }
     
     for i in x.iter_mut() {
         *i /= sum;
-    }   
+    } 
 }
 
-pub fn matmul(xout: &mut Vec<f32>, x: &Vec<f32>, w: &[f32]) {
+pub fn tanh(x: f32) -> f32 {
+    (x.exp() / (-x).exp())/(x.exp() + (-x).exp())
+}
+
+pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
     let n = x.len();
 
     xout.par_iter_mut().enumerate().for_each(|(i, val)| {
         *val = (0..n).map(|j| w[i * n + j] * x[j]).sum();
     });
+}
+
+fn sample_argmax(probabilities: &[f32]) -> u32 {
+    let mut max_i: u32 = 0;
+    let mut max_p = probabilities[0];
+
+    for i in 1..probabilities.len() {
+        if probabilities[i] > max_p {
+            max_i = i as u32;
+            max_p = probabilities[i];
+        }
+    }
+
+    println!("{}", max_p);
+
+    return max_i;
+}
+
+pub fn sample(logits: &[f32]) -> u32 {
+    sample_argmax(logits)
 }

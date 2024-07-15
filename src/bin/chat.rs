@@ -1,7 +1,10 @@
 use llmrs::transformer::Transformer;
 use llmrs::tokenizer::Tokenizer;
+use llmrs::functional::sample;
 
 use std::env;
+use std::io;
+use std::io::Write;
 use std::time::Instant;
 use std::fs::File;
 use memmap2::Mmap;
@@ -17,28 +20,55 @@ fn main() {
 
     let mut model = Transformer::new(&data);
 
-    let tokens = tokenizer.encode("This message is tokenized! さあ行こう", true, false);
+    let mut user_turn = true;
+    let mut user_idx: usize = 0;
+    let mut pos = 0;
+    let mut token: u32;
+    let mut next: u32 = 0;
+    let mut num_prompt_tokens = 0;
 
-    println!("{:?}", tokens);
+    let mut prompt_tokens: Vec<u32> = Vec::new();
 
-    for i in 1..tokens.len() {
-        print!("{}", tokenizer.decode(tokens[i-1], tokens[i]));
-    }
+    let mut user_prompt = String::new();
 
-    println!("");
+    loop {
+        if user_turn {
+            user_prompt = String::from("");
 
+            print!("Please enter some text: ");
+            io::stdout().flush().unwrap();
 
-    for i in 0..1 {
-        let start = Instant::now();
+            io::stdin().read_line(&mut user_prompt).expect("Failed to read line");
 
-        model.forward(tokens[0], 0);
+            prompt_tokens = tokenizer.encode(user_prompt.trim(), false, false, false);
+            num_prompt_tokens = prompt_tokens.len();
 
-        let end = Instant::now();
+            user_turn = false; 
+            user_idx = 0;
+            
+            print!("Gemma: ");
+            io::stdout().flush().unwrap();
+        }
 
-        let duration = end.duration_since(start);
+        if user_idx < num_prompt_tokens {
+            token = prompt_tokens[user_idx];
+            user_idx += 1;
+        } else {
+            token = next;
+        }
 
-        let in_seconds = duration.as_secs_f64();
+        if token == 1 { user_turn = true; }
 
-        println!("Elapsed time in seconds: {:.3}", in_seconds);
+        let logits = model.forward(token, pos);
+        next = sample(logits);
+        pos += 1;
+
+        if user_idx >= num_prompt_tokens && next != 1 {
+            let piece = tokenizer.decode(token);
+            print!("{}", piece);
+            io::stdout().flush().unwrap();
+        }   
+
+        if next == 1 { println!(""); }
     }
 }

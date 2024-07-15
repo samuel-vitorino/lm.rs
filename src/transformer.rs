@@ -2,6 +2,8 @@ use crate::functional::slice_to_u32;
 use crate::functional::u8_to_f32_slice;
 use crate::functional::rmsnorm;
 use crate::functional::matmul;
+use crate::functional::softmax;
+use crate::functional::tanh;
 use std::fs::File;
 use memmap2::Mmap;
 
@@ -162,7 +164,7 @@ impl<'a> Transformer<'a> {
         }
     }
 
-    pub fn forward(&mut self, token: u32, pos: u32) {
+    pub fn forward(&mut self, token: u32, pos: u32) -> &[f32] {
         let p = self.args;
         let w = &self.weights;
         let s = &mut self.state;
@@ -178,11 +180,106 @@ impl<'a> Transformer<'a> {
         for l in 0..p.n_layers {
             rmsnorm(&mut s.xb, x, &w.w_rms_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
 
-            let loff = l * p.seq_len * kv_dim;
-            let k = s.key_cache[(loff + pos * kv_dim) as usize];
-            let v = s.value_cache[(loff + pos * kv_dim) as usize];
+            let loff = l * p.seq_len * kv_dim; 
+            let mut k = &mut s.key_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
+            let mut v = &mut s.value_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
             
             matmul(&mut s.q, &s.xb, &w.wq[(l*dim*dim) as usize..(l*dim*dim + dim*dim) as usize]);
+            matmul(k, &s.xb, &w.wk[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
+            matmul(v, &s.xb, &w.wv[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
+            
+            for i in (0..dim).step_by(2) {
+                let head_dim: u32 = i % head_size;
+                let freq: f32 = 1.0 / 10000.0f32.powf(head_dim as f32/head_size as f32);
+                let val: f32 = pos as f32 * freq;
+                let fcr = val.cos();
+                let fci = val.sin();
+                let rotn: u32 = if i < kv_dim {2} else {1};
+
+                for v in 0..rotn{
+                    let vec: &mut [f32] = if v == 0 {&mut s.q} else {k};
+                    let v0: f32 = vec[i as usize];
+                    let v1: f32 = vec[(i+1) as usize];
+
+                    vec[i as usize] = v0 * fcr - v1 * fci;
+                    vec[(i+1) as usize] = v0 * fci + v1 * fcr;
+                }
+            }
+
+            for h in 0..p.n_heads {
+                let q = &mut s.q[(h*head_size) as usize..(h*head_size + head_size) as usize];
+
+                let att = &mut s.att[(h*p.seq_len) as usize..(h*p.seq_len + p.seq_len) as usize];
+
+                for t in 0..pos+1 {
+                    k = &mut s.key_cache[(loff + t * kv_dim + (h / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h / kv_mul) * head_size + head_size) as usize];
+                    
+                    let mut score: f32 = 0.0;
+
+                    for i in 0..head_size {
+                        score += q[i as usize] * k[i as usize];
+                    }
+
+                    score /= (head_size as f32).sqrt();
+                    
+                    att[t as usize] = score;
+                }
+            
+                softmax(&mut att[..(pos+1) as usize]);
+
+                let xb = &mut s.xb[(h * head_size) as usize..(h * head_size + head_size) as usize];
+
+                xb.fill(0.0);
+
+                for t in 0..pos+1 {
+                    v = &mut s.value_cache[(loff + t * kv_dim + (h / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h / kv_mul) * head_size + head_size) as usize];
+                    let a = att[t as usize];
+
+
+                    for i in 0..head_size {
+                        xb[i as usize] += a * v[i as usize];
+                    }
+                }
+            }
+            
+            matmul(&mut s.xb2, &s.xb, &w.wo[(l*dim*dim) as usize..(l*dim*dim + dim*dim) as usize]);
+            
+            for i in 0..dim {
+                x[i as usize] += s.xb2[i as usize];
+            }
+
+            rmsnorm(&mut s.xb, x, &w.w_rms_ffn[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
+            
+            //GeGLU is w3(w1(x) * GELU(w2(x))))
+            matmul(&mut s.hb, &s.xb, &w.w2[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+            matmul(&mut s.hb2, &s.xb, &w.w3[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+            
+            for i in 0..hidden_dim {
+                let mut val = s.hb[i as usize];
+                
+                val *= 0.5 * (1.0 + tanh((2.0/std::f32::consts::PI).sqrt() * (val + 0.044715 * val * val * val)));
+                
+                //val *= (1.0 / (1.0 + (-val).exp()));
+
+                val *= s.hb2[i as usize];
+
+                s.hb[i as usize] = val;
+            }
+            
+            matmul(&mut s.xb, &s.hb, &w.w1[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+            
+            for i in 0..dim {
+                x[i as usize] += s.xb[i as usize];
+            }
         }
+
+        s.xb.copy_from_slice(x);
+
+        rmsnorm(x, &s.xb, &w.w_rms_final, dim as usize);
+
+
+        matmul(&mut s.logits, &x, &w.w_cls);
+        
+        return &s.logits;
     }
 }
