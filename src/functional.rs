@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use rayon::prelude::*;
 
-//Some helper functions 
+// Some helper functions 
 
 pub fn slice_to_u32(slice: &[u8]) -> u32 {
     assert!(slice.len() == 4, "Slice must be exactly 4 bytes long");

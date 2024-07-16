@@ -20,14 +20,14 @@ pub struct TranformerArgs {
 pub struct TransformerWeights<'a> {
     token_embedding_table: &'a [f32],
 
-    //Attention
+    // Attention
     wq: &'a [f32],
     wk: &'a [f32],
     wv: &'a [f32],
     wo: &'a [f32],
     w_rms_att: &'a [f32],
 
-    //FFN
+    // FFN
     w1: &'a [f32],
     w2: &'a [f32],
     w3: &'a [f32],
@@ -170,8 +170,9 @@ impl<'a> Transformer<'a> {
         let head_size = dim / p.n_heads;
 
         x.copy_from_slice(&w.token_embedding_table[(token * dim) as usize..(token * dim + dim) as usize]);
+        
+        // Gemma normalizes the token embeddings by sqrt(dim)
         let normalizer = (dim as f32).sqrt();
-
         for i in x.iter_mut() {
             *i *= normalizer;
         }
@@ -248,7 +249,12 @@ impl<'a> Transformer<'a> {
 
             rmsnorm(&mut s.xb, x, &w.w_rms_ffn[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
 
-            //GeGLU is w2(GELU(w1(x)) * w3(x)) 
+            // GeGLU is w2(GELU(w1(x)) * w3(x)) 
+            // w1 -> gate_proj weights
+            // w2 -> down_proj weights
+            // w3 -> up_proj weights
+            // GELU using tanh as the approximation
+
             matmul(&mut s.hb, &s.xb, &w.w1[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
             matmul(&mut s.hb2, &s.xb, &w.w3[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
             
