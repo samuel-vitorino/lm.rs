@@ -15,7 +15,6 @@ Some things to do in the future:
 - [ ] Rust language optimizations.
 
 ## Instructions
----
 
 Download the .safetensors and config files from [huggingface](https://huggingface.co/google/gemma-2b-it).
 
@@ -46,8 +45,6 @@ cargo run -- [model weights file]
 ```
 
 ## License
-
----
 
 MIT
 
