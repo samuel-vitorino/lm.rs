@@ -10,11 +10,19 @@ from contextlib import ExitStack
 from safetensors import safe_open
 from safetensors.torch import save_file
 
+def extract_layer_number(key):
+    parts = key.split('.')
+    for i, part in enumerate(parts):
+        if part == 'layers':
+            return int(parts[i + 1])
+    return 0
+
 def write_tensors_by_group(files, layer_pattern, out_file):
     for f in files:
         layers_keys = [key for key in f.keys() if layer_pattern in key]
 
-        for layer in sorted(layers_keys):
+        for layer in sorted(layers_keys, key=extract_layer_number):
+            print(f"Writing: {layer}")
             serialize_fp32(out_file, f.get_tensor(layer))
 
 def serialize_fp32(file, tensor, chunk_size=1024*1024):
@@ -57,6 +65,7 @@ if __name__ == "__main__":
         files = [stack.enter_context(safe_open(file_path, framework="pt", device="cpu")) for file_path in args.files]
         
         # Embedding table / cls layer weights
+        print(f"Writing: model.embed_tokens.weight")
         serialize_fp32(out_file, files[0].get_tensor("model.embed_tokens.weight"))
 
         # Attention weights
@@ -73,6 +82,7 @@ if __name__ == "__main__":
         write_tensors_by_group(files, "mlp.up_proj", out_file)
          
         # Final norm weights
+        print(f"Writing: model.norm.weight")
         serialize_fp32(out_file, files[-1].get_tensor("model.norm.weight"))
 
     print("Successfully converted gemma model to lmrs format.")

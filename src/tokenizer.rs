@@ -13,8 +13,8 @@ pub struct Tokenizer {
     vocab: Vec<String>,
     vocab_scores: Vec<f32>,
     sorted_vocab: Vec<TokenIndex>,
-    max_token_len: u32,
-    byte_pieces: [u8; 256],
+    //For now i don't use this, only allow seqs of max this size, future work
+    //max_token_len: u32, 
 }
 
 impl Tokenizer {
@@ -22,16 +22,10 @@ impl Tokenizer {
         let data: Vec<u8> = fs::read(path).expect("REASON");
 
         let vocab_size = slice_to_u32(&data[0..4]);
-        let max_token_len = slice_to_u32(&data[4..8]);
+        //let max_token_len = slice_to_u32(&data[4..8]);
         let mut vocab: Vec<String> = vec![];
         let mut vocab_scores: Vec<f32> = vec![];
         let sorted_vocab: Vec<TokenIndex> = vec![];
-
-        let mut byte_pieces: [u8; 256] = [0; 256];
-
-        for i in 0..256 {
-            byte_pieces[i] = i as u8;
-        }
 
         let mut offset: usize = 8;
 
@@ -46,7 +40,7 @@ impl Tokenizer {
 
             offset += 4;
 
-            let token_str = String::from_utf8(data[offset..offset + str_len as usize].to_vec()).expect("REASON");
+            let token_str = String::from_utf8(data[offset..offset + str_len as usize].to_vec()).expect("Error reading token string");
 
             vocab.push(token_str);
 
@@ -55,8 +49,7 @@ impl Tokenizer {
 
         Tokenizer {
             vocab_size,
-            max_token_len,
-            byte_pieces,
+            //max_token_len,
             vocab,
             vocab_scores,
             sorted_vocab,
@@ -147,12 +140,12 @@ impl Tokenizer {
         return tokens;
     }
 
-    pub fn decode(&self, token: u32) -> &str {
-        let mut piece = self.vocab[token as usize].as_str();
+    pub fn decode(&self, token: u32) -> String {
+        let piece = self.vocab[token as usize].to_string();
         
         if piece.starts_with("<0x") && piece.ends_with('>') && piece.len() == 6 {
             if let Ok(byte_val) = u8::from_str_radix(&piece[3..5], 16) {
-                let piece = &char::from(byte_val).to_string();
+                return char::from(byte_val).to_string();
             }
         }
         piece

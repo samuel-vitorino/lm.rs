@@ -1,17 +1,24 @@
 use llmrs::transformer::Transformer;
 use llmrs::tokenizer::Tokenizer;
 use llmrs::functional::sample;
-use llmrs::functional::tanh;
-use llmrs::functional::rmsnorm;
 
 use std::env;
 use std::io;
 use std::io::Write;
-use std::time::Instant;
 use std::fs::File;
 use memmap2::Mmap;
 
 fn main() {
+    let logo = r#"
+    L      M     M  RRRR    ssss
+    L      MM   MM  R   R  s
+    L      M M M M  RRRR    sss
+    L      M  M  M  R  R       s
+    LLLL   M     M  R   R  sssss
+    "#;
+
+    println!("{}", logo);
+
     let args: Vec<String> = env::args().collect();
     let model_path: &str = &args[1];
 
@@ -31,25 +38,25 @@ fn main() {
 
     let mut prompt_tokens: Vec<u32> = Vec::new();
 
-    let mut user_prompt = String::new();
+    let mut user_prompt: String;
 
     loop {
         if user_turn {
             user_prompt = String::from("");
 
-            print!("Please enter some text: ");
+            print!("You: ");
             io::stdout().flush().unwrap();
 
             io::stdin().read_line(&mut user_prompt).expect("Failed to read line");
 
-            prompt_tokens = tokenizer.encode(user_prompt.trim(), true, false, false);
-            println!("tokens - {:?}", prompt_tokens);
+            //Even when using gemma 2b-it you can do chat_format = false and use text completion
+            prompt_tokens = tokenizer.encode(user_prompt.trim(), true, false, true);
             num_prompt_tokens = prompt_tokens.len();
 
             user_turn = false; 
             user_idx = 0;
             
-            print!("Gemma: ");
+            print!("Assistant: \n");
             io::stdout().flush().unwrap();
         }
 
