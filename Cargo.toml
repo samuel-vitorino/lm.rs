@@ -6,4 +6,3 @@ edition = "2021"
 [dependencies]
 memmap2 = "0.9.4"
 rayon = "1.10.0"
-half = "2.4.1"

@@ -1,6 +1,8 @@
 use std::convert::TryInto;
 use rayon::prelude::*;
 
+//Some helper functions 
+
 pub fn slice_to_u32(slice: &[u8]) -> u32 {
     assert!(slice.len() == 4, "Slice must be exactly 4 bytes long");
     u32::from_ne_bytes(slice.try_into().expect("Slice with incorrect length"))
@@ -11,17 +13,14 @@ pub fn slice_to_f32(slice: &[u8]) -> f32 {
     f32::from_ne_bytes(slice.try_into().expect("Slice with incorrect length"))
 }
 
-pub fn slice_to_u64(slice: &[u8]) -> u64 {
-    assert!(slice.len() == 8, "Slice must be exactly 4 bytes long");
-    u64::from_ne_bytes(slice.try_into().expect("Slice with incorrect length"))
-}
-
 pub fn u8_to_f32_slice(data: &[u8]) -> &[f32] {
     let (prefix, f32data, suffix) = unsafe { data.align_to::<f32>() };
     assert!(prefix.is_empty(), "Data was not aligned correctly");
     assert!(suffix.is_empty(), "Data was not aligned correctly");
     f32data
 }
+
+// Functions used in NNs
 
 pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize) {
     let mut ss = 0.0;
@@ -59,10 +58,7 @@ pub fn softmax(x: &mut [f32]){
     } 
 }
 
-pub fn tanh(x: f32) -> f32 {
-    (x.exp() - (-x).exp())/(x.exp() + (-x).exp())
-}
-
+// Parallelized matmul using rayon
 pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
     let n = x.len();
 
@@ -70,20 +66,6 @@ pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
         *val = (0..n).map(|j| w[i * n + j] * x[j]).sum();
     });
 }
-
-pub fn matmul_test(xout: &mut [f32], x: &[f32], w: &[f32], n: usize, d: usize) {
-    for i in 0..d{
-        let mut val: f32 = 0.0;
-
-        for j in 0..20 {
-            val += w[i * n + j] * x[j];
-        }
-        println!("VAL - {}", val);
-        xout[i] = val;
-    }
-}
-
-
 
 fn sample_argmax(probabilities: &[f32]) -> u32 {
     let mut max_i: u32 = 0;
@@ -95,8 +77,6 @@ fn sample_argmax(probabilities: &[f32]) -> u32 {
             max_p = probabilities[i];
         }
     }
-
-    //println!("{} {}", max_i, max_p);
 
     return max_i;
 }
