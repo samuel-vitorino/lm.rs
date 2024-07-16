@@ -16,12 +16,12 @@ Some things to do in the future:
 
 ## Instructions
 
-Download the .safetensors files from [huggingface](https://huggingface.co/google/gemma-2b-it).
+Download the .safetensors and config files from [huggingface](https://huggingface.co/google/gemma-2b-it).
 
 Use the export.py file to convert the model weights into float32 LMRS format:
 
 ```properties
-python export.py --files [safetensor files ordered] --config config.json --save_path [name and path to save]
+python export.py --files [safetensor files ordered] --config [model config.json] --save_path [name and path to save]
 ```
 
 Download the .spm tokenizer model from [kaggle](https://www.kaggle.com/models/google/gemma) to this folder (could have created a script to convert the tokenizer.config from hugging face i guess).
