@@ -108,6 +108,7 @@ fn main() {
 
         if token == 1 { 
             user_turn = true; 
+            println!("");
             if args.show_metrics {
                 let toks = total_tokens/(total_duration/1000.0);
                 
@@ -133,7 +134,5 @@ fn main() {
         let duration = processing_start.elapsed();
         total_duration += duration.as_millis() as f32;
         total_tokens += 1 as f32;
-
-        if next == 1 { println!(""); }
     }
 }
