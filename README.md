@@ -18,7 +18,7 @@ Some things to do in the future:
 
 ## Instructions
 
-Download the .safetensors and config file from [huggingface](https://huggingface.co/google/gemma-2-2b-it) (So we don't have to clone the pytorch repo).
+Download the .safetensors, config.json and tokenizer.model files from [huggingface](https://huggingface.co/google/gemma-2-2b-it) (So we don't have to clone the pytorch repo).
 
 Use the export.py file to convert the model weights into float32 LMRS format:
 
@@ -26,9 +26,7 @@ Use the export.py file to convert the model weights into float32 LMRS format:
 python export.py --files [safetensor files ordered] --config [model config.json] --save_path [name and path to save]
 ```
 
-Download the .spm tokenizer model from [kaggle](https://www.kaggle.com/models/google/gemma-2) to this folder (in the gemma C++ version).
-
-Use the tokenizer.py file to convert the tokenizer into LMRS tokenizer format:
+Use the tokenizer.py to convert the tokenizer.model sentencepiece tokenizer into the LMRS tokenizer format:
 
 ```properties
 python tokenizer.py

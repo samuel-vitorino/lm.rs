@@ -1,19 +1,18 @@
 import os
 import struct
 import argparse
+from transformers.models.gemma.tokenization_gemma import GemmaTokenizer
 from typing import List
 
 # Convert sentencepiece tokenizer model into lmrs format (slight modification from karpathy's code)
 
-from sentencepiece import SentencePieceProcessor
-
-TOKENIZER_MODEL = "tokenizer.spm"
+TOKENIZER_MODEL = "tokenizer.model"
 
 class Tokenizer:
     def __init__(self, tokenizer_model=None):
         model_path = tokenizer_model if tokenizer_model else TOKENIZER_MODEL
         assert os.path.isfile(model_path), model_path
-        self.sp_model = SentencePieceProcessor(model_file=model_path)
+        self.sp_model = GemmaTokenizer(model_path).sp_model
         self.model_path = model_path
 
         # BOS / EOS token IDs
@@ -60,7 +59,7 @@ class Tokenizer:
 
         # write to a binary file
         # the tokenizer.bin file is the same as .model file, but .bin
-        tokenizer_bin = self.model_path.replace('.spm', '.bin')
+        tokenizer_bin = self.model_path.replace('.model', '.bin')
         with open(tokenizer_bin, 'wb') as f:
             f.write(struct.pack("II", self.n_words, max_token_length))
             for bytes, score in zip(tokens, scores):

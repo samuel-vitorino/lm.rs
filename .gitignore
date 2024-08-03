@@ -25,4 +25,4 @@ Cargo.lock
 *.lmrs
 
 *.bin 
-*.spm
+*.model
