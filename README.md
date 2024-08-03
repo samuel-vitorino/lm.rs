@@ -51,7 +51,7 @@ And you are good to go:
 ./target/release/chat --model [model weights file]
 ```
 
-Other arguments include tokenizer, temperature, top_k, show-metrics etc. To check available arguments run with --help.
+Other arguments include tokenizer, temperature, top-p, show-metrics etc. To check available arguments run with --help.
 
 ## License
 
