@@ -6,7 +6,7 @@
 
 Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code that can perform full inference on Google's Gemma models on the CPU (only tested the 2B-it).
 
-Disclaimer: most of the code could be optimized and improved. Inference is slow! This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running with just **602** lines of poorly written Rust code?
+Disclaimer: most of the code could be optimized and improved. Inference is slow! This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running with just **643** lines of poorly written Rust code?
 
 Some things to do in the future:
 
