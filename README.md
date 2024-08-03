@@ -43,7 +43,7 @@ cargo build --release
 And you are good to go:
 
 ```properties
-./target/release/chat -- [model weights file]
+./target/release/chat [model weights file]
 ```
 
 ## License
