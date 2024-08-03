@@ -20,13 +20,13 @@ Some things to do in the future:
 
 Download the .safetensors, config.json and tokenizer.model files from [huggingface](https://huggingface.co/google/gemma-2-2b-it) (So we don't have to clone the pytorch repo).
 
-Use the export.py file to convert the model weights into float32 LMRS format:
+Use the export.py script to convert the model bfloat16 weights into float32 LMRS format:
 
 ```properties
 python export.py --files [safetensor files ordered] --config [model config.json] --save_path [name and path to save]
 ```
 
-Use the tokenizer.py to convert the tokenizer.model sentencepiece tokenizer into the LMRS tokenizer format:
+Use the tokenizer.py script to convert the tokenizer.model sentencepiece tokenizer into the LMRS tokenizer format:
 
 ```properties
 python tokenizer.py
