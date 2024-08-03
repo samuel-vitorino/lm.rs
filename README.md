@@ -18,7 +18,7 @@ Some things to do in the future:
 
 ## Instructions
 
-Install python dependencies used in export.py and tokenizer.py:
+Install additional python dependencies (assuming you already have pytorch installed) used in export.py and tokenizer.py:
 
 ```properties
 pip install -r requirements.txt
