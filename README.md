@@ -2,7 +2,7 @@
 
 ![Gemma greeting the user](repo_cover.png)
 
-**Now supporting Gemma 2 2b! For Gemma 1 2b refer to the gemma1 branch.**
+**Now supporting Gemma 2 2b! For Gemma 1 2b refer to the gemma1 branch. [Video Demo](https://www.youtube.com/watch?v=3HHl2KSPAc8).**
 
 Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code that can perform full inference on Google's Gemma models on the CPU (only tested the 2B-it).
 
