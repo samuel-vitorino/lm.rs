@@ -14,7 +14,7 @@ pub struct TranformerArgs {
     n_heads: u32,
     head_size: u32,
     n_kv_heads: u32,
-    vocab_size: u32,
+    pub vocab_size: u32,
     seq_len: u32,
 }
 
@@ -57,7 +57,7 @@ pub struct TransformerState{
 }
 
 pub struct Transformer<'a> {
-    args: TranformerArgs,
+    pub args: TranformerArgs,
     weights: TransformerWeights<'a>,
     state: TransformerState,
 }
@@ -171,7 +171,7 @@ impl<'a> Transformer<'a> {
         }
     }
 
-    pub fn forward(&mut self, token: u32, pos: u32) -> &[f32] {
+    pub fn forward(&mut self, token: u32, pos: u32) -> &mut [f32] {
         let p = self.args;
         let w = &self.weights;
         let s = &mut self.state;
@@ -317,6 +317,6 @@ impl<'a> Transformer<'a> {
             s.logits[d as usize] *= 30.0;
         }
         
-        return &s.logits;
+        return &mut s.logits;
     }
 }

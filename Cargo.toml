@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 memmap2 = "0.9.4"
 rayon = "1.10.0"
+clap = { version = "4.5.13", features = ["derive"] }

@@ -82,13 +82,6 @@ impl Tokenizer {
             tokens.extend(&[106, 1645, 108]);
         }
 
-        //if text != "" {
-        //    match self.sorted_vocab.binary_search_by(|token| token.text.cmp(&String::from(" "))) {
-        //        Ok(index) => tokens.push(self.sorted_vocab[index].id),
-        //        Err(_) => println!("Dummy prefix token not found"),
-        //    }
-        //}
-
         for c in text.chars() {
             let c_str = c.to_string();
             match self.sorted_vocab.binary_search_by(|token| token.text.cmp(&c_str)) {

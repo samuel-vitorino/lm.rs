@@ -20,6 +20,17 @@ pub fn u8_to_f32_slice(data: &[u8]) -> &[f32] {
     f32data
 }
 
+pub fn random_u32(mut state: u64) -> u32 {
+    state ^= state >> 12;
+    state ^= state << 25;
+    state ^= state >> 27;
+    return ((state * 0x2545F4914F6CDD1Du64) >> 32) as u32;
+}
+
+pub fn random_f32(state: u64) -> f32 { 
+    return (random_u32(state) >> 8) as f32 / 16777216.0f32;
+}
+
 // Functions used in NNs
 
 pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize) {
@@ -65,22 +76,4 @@ pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
     xout.par_iter_mut().enumerate().for_each(|(i, val)| {
         *val = (0..n).map(|j| w[i * n + j] * x[j]).sum();
     });
-}
-
-fn sample_argmax(probabilities: &[f32]) -> u32 {
-    let mut max_i: u32 = 0;
-    let mut max_p = probabilities[0];
-
-    for i in 1..probabilities.len() {
-        if probabilities[i] > max_p {
-            max_i = i as u32;
-            max_p = probabilities[i];
-        }
-    }
-
-    return max_i;
-}
-
-pub fn sample(logits: &[f32]) -> u32 {
-    sample_argmax(logits)
 }

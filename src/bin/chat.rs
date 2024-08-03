@@ -1,12 +1,30 @@
 use llmrs::transformer::Transformer;
 use llmrs::tokenizer::Tokenizer;
-use llmrs::functional::sample;
+use llmrs::sampler::Sampler;
 
-use std::env;
+use std::fs;
 use std::io;
 use std::io::Write;
 use std::fs::File;
+use clap::Parser;
+use std::time::{SystemTime, UNIX_EPOCH, Instant};
 use memmap2::Mmap;
+
+#[derive(Parser)]
+struct Args {
+    #[arg(long)]
+    model: String,
+    #[arg(long, default_value_t = String::from("tokenizer.bin"))]
+    tokenizer: String,
+    #[arg(long, default_value_t = 1.0f32)]
+    temperature: f32,
+    #[arg(long, default_value_t = 0.9f32)]
+    top_p: f32,
+    #[arg(long)]
+    seed: Option<u64>,
+    #[arg(long, default_value_t = false)]
+    show_metrics: bool,
+}
 
 fn main() {
     let logo = r#"
@@ -19,15 +37,34 @@ fn main() {
 
     println!("{}", logo);
 
-    let args: Vec<String> = env::args().collect();
-    let model_path: &str = &args[1];
+    let args = Args::parse();
+    let model_path: &str = args.model.as_str();
+    let tokenizer_path: &str = args.tokenizer.as_str();
 
-    let mut tokenizer = Tokenizer::new("tokenizer.bin");
+    assert!(fs::metadata(tokenizer_path).is_ok(), "Tokenizer file not found: {}", tokenizer_path);
+    assert!(fs::metadata(model_path).is_ok(), "Model file not found: {}", model_path);
 
-    let file = File::open(model_path).expect("Model file required");
+    let mut tokenizer = Tokenizer::new(args.tokenizer.as_str());
+
+    let file = File::open(model_path).expect("Error opening model file");
     let data = unsafe { Mmap::map(&file).expect("MMap failed")  };
 
     let mut model = Transformer::new(&data);
+
+    let seed: u64;
+
+    match args.seed {
+        Some(seed_value) => {
+            seed = seed_value;
+        }
+        None => {
+            let start = SystemTime::now();
+            let since_epoch = start.duration_since(UNIX_EPOCH).expect("Error getting time since epoch");
+            seed = since_epoch.as_millis() as u64;
+        }
+    }
+
+    let mut sampler = Sampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
 
     let mut user_turn = true;
     let mut user_idx: usize = 0;
@@ -35,6 +72,8 @@ fn main() {
     let mut token: u32;
     let mut next: u32 = 0;
     let mut num_prompt_tokens = 0;
+    let mut total_tokens: f32 = 0.0;
+    let mut total_duration: f32 = 0.0;
 
     let mut prompt_tokens: Vec<u32> = Vec::new();
 
@@ -67,10 +106,22 @@ fn main() {
             token = next;
         }
 
-        if token == 1 { user_turn = true; }
+        if token == 1 { 
+            user_turn = true; 
+            if args.show_metrics {
+                let toks = total_tokens/(total_duration/1000.0);
+                
+                println!("Speed: {:.2} tok/s", toks);
 
-        let logits = model.forward(token, pos);
-        next = sample(logits);
+                total_duration = 0.0;
+                total_tokens = 0.0;
+            } 
+        }
+        
+        let processing_start = Instant::now();
+
+        let logits: &mut [f32] = model.forward(token, pos);
+        next = sampler.sample(logits);
         pos += 1;
 
         if user_idx >= num_prompt_tokens && next != 1 {
@@ -78,6 +129,10 @@ fn main() {
             print!("{}", piece);
             io::stdout().flush().unwrap();
         }   
+
+        let duration = processing_start.elapsed();
+        total_duration += duration.as_millis() as f32;
+        total_tokens += 1 as f32;
 
         if next == 1 { println!(""); }
     }
