@@ -18,6 +18,12 @@ Some things to do in the future:
 
 ## Instructions
 
+Install python dependencies used in export.py and tokenizer.py:
+
+```properties
+pip install -r requirements.txt
+```
+
 Download the .safetensors, config.json and tokenizer.model files from [huggingface](https://huggingface.co/google/gemma-2-2b-it) (So we don't have to clone the pytorch repo).
 
 Use the export.py script to convert the model bfloat16 weights into float32 LMRS format:
