@@ -8,7 +8,6 @@ import gc
 
 from contextlib import ExitStack
 from safetensors import safe_open
-from safetensors.torch import save_file
 
 def extract_layer_number(key):
     parts = key.split('.')
@@ -43,7 +42,7 @@ if __name__ == "__main__":
     parser.add_argument('--config', type=str, required=True, help='path of the config file of the model')
     parser.add_argument('--save_path', type=str, required=True, help='path of the output model file')
 
-    version = 1
+    version = 2
 
     args = parser.parse_args()
 
@@ -56,7 +55,7 @@ if __name__ == "__main__":
     out_file.write(struct.pack('I', 0x73726d6c))
     out_file.write(struct.pack('I', version))
 
-    header = struct.pack('IIIIIII', cfg["hidden_size"], cfg["intermediate_size"], cfg["num_hidden_layers"], cfg["num_attention_heads"],
+    header = struct.pack('IIIIIIII', cfg["hidden_size"], cfg["intermediate_size"], cfg["num_hidden_layers"], cfg["num_attention_heads"], cfg["head_dim"],
                                     cfg["num_key_value_heads"], cfg["vocab_size"], cfg["max_position_embeddings"])
 
     out_file.write(header)
@@ -77,9 +76,11 @@ if __name__ == "__main__":
         
         # FFN weights
         write_tensors_by_group(files, "post_attention_layernorm", out_file)
+        write_tensors_by_group(files, "pre_feedforward_layernorm", out_file)
         write_tensors_by_group(files, "mlp.gate_proj", out_file)
         write_tensors_by_group(files, "mlp.down_proj", out_file)
         write_tensors_by_group(files, "mlp.up_proj", out_file)
+        write_tensors_by_group(files, "post_feedforward_layernorm", out_file)
          
         # Final norm weights
         print(f"Writing: model.norm.weight")

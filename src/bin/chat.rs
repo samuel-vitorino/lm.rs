@@ -49,7 +49,7 @@ fn main() {
 
             io::stdin().read_line(&mut user_prompt).expect("Failed to read line");
 
-            //Even when using gemma 2b-it you can do chat_format = false and use text completion
+            // Even when using gemma 2b-it you can do chat_format = false and use text completion
             prompt_tokens = tokenizer.encode(user_prompt.trim(), true, false, true);
             num_prompt_tokens = prompt_tokens.len();
 

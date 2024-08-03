@@ -130,7 +130,7 @@ impl Tokenizer {
         }
         
         if chat_format {
-            tokens.extend(&[107, 108, 106, 2516, 108]);
+            tokens.extend(&[107, 108]);
         }
 
         if eos {
