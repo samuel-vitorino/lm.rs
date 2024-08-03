@@ -202,7 +202,7 @@ impl<'a> Transformer<'a> {
             matmul(k, &s.xb, &w.wk[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
             matmul(v, &s.xb, &w.wv[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
             
-            // In gemma they chunk and stack the input matrix to use as complex numbers so actually for calculation, vec[i+1] is vec[1+head_size/2]
+            // In gemma they chunk and stack the input matrix to use as complex numbers so actually for calculation, vec[i+1] is vec[i+head_size/2]
             for i in 0..p.n_heads {
                 for j in 0..(head_size/2) {
                     let head_dim: u32 = j * 2;
