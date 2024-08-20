@@ -1,5 +1,9 @@
+
+use crate::quantization::{QuantizedTensor, MutableQuantizedTensor};
+
 use std::convert::TryInto;
 use rayon::prelude::*;
+use wide::{f32x8, i32x8};
 
 // Some helper functions 
 
@@ -20,6 +24,13 @@ pub fn u8_to_f32_slice(data: &[u8]) -> &[f32] {
     f32data
 }
 
+pub fn u8_to_i8_slice(data: &[u8]) -> &[i8] {
+    let (prefix, i8data, suffix) = unsafe { data.align_to::<i8>() };
+    assert!(prefix.is_empty(), "Data was not aligned correctly");
+    assert!(suffix.is_empty(), "Data was not aligned correctly");
+    i8data
+}
+
 pub fn random_u32(mut state: u64) -> u32 {
     state ^= state >> 12;
     state ^= state << 25;
@@ -34,18 +45,30 @@ pub fn random_f32(state: u64) -> f32 {
 // Functions used in NNs
 
 pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize) {
-    let mut ss = 0.0;
+    let n_simd = size/8;
 
-    for j in 0..size {
-        ss += x[j] * x[j]
+    let mut ss_sim = f32x8::ZERO;
+
+    for j in 0..n_simd {
+        let x_vec = f32x8::from(&x[j*8..j*8+8]); 
+        ss_sim += x_vec * x_vec;
     } 
+
+    let mut ss = ss_sim.reduce_add();
 
     ss /= size as f32;
     ss += 1e-6;
     ss = 1.0 / ss.sqrt();
 
-    for j in 0..size {
-        o[j] = (1.0f32 + weight[j]) * (ss * x[j])
+    for j in 0..n_simd {
+        let x_vec = f32x8::from(&x[j*8..j*8+8]);
+        let w_vec = f32x8::from(&weight[j*8..j*8+8]);
+
+        let r = ((1.0 + w_vec) * (ss * x_vec)).to_array();
+
+        for k in 0..8 {
+            o[(j*8) + k] = r[k];
+        } 
     } 
 }
 
@@ -69,11 +92,41 @@ pub fn softmax(x: &mut [f32]){
     } 
 }
 
-// Parallelized matmul using rayon
 pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
     let n = x.len();
+    let n_simd = n / 8;
 
     xout.par_iter_mut().enumerate().for_each(|(i, val)| {
-        *val = (0..n).map(|j| w[i * n + j] * x[j]).sum();
+        let mut sum = f32x8::ZERO;
+        let w_slice = &w[i * n..i * n + n];
+
+        for j in 0..n_simd {
+            let x_vec = f32x8::from(&x[j*8..j*8+8]);
+            let w_vec = f32x8::from(&w_slice[j*8..j*8+8]);
+            sum += w_vec * x_vec;
+        }
+
+        *val = sum.reduce_add();
+    });
+}
+
+pub fn qmatmul(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, gs: usize) {
+    let n_simd = gs / 8;
+    
+    xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
+        let ni: usize = i * n;
+
+        *xout_elem = (0..=(n - gs)).step_by(gs as usize).map(|j| {
+            let mut ival = i32x8::ZERO;
+
+            for k in 0..n_simd {
+                let x_vec = i32x8::from(&x.q[j+k*8..j+k*8+8]);
+                let w_vec = i32x8::from(&w.q[ni+j+k*8..ni+j+k*8+8]);
+
+                ival += x_vec * w_vec;
+            }
+
+            (ival.reduce_add() as f32) * w.s[(ni + j) / gs] * x.s[j / gs]
+        }).sum();
     });
 }

@@ -1,9 +1,44 @@
 use crate::functional::slice_to_u32;
 use crate::functional::u8_to_f32_slice;
+use crate::functional::u8_to_i8_slice;
 use crate::functional::rmsnorm;
 use crate::functional::matmul;
+use crate::functional::qmatmul;
 use crate::functional::softmax;
+
+use crate::quantization::*;
+
 use memmap2::Mmap;
+use rayon::prelude::*;
+use std::mem::{MaybeUninit, size_of};
+
+fn init_param<'a>(data: &'a [u8], offset: &mut usize, n: u32, size_each: u32) -> &'a [f32]{
+    let ptr: &[f32]  = u8_to_f32_slice(&data[*offset..(*offset + ((n * size_each) as usize * size_of::<f32>()))]);
+
+    *offset += (n * size_each) as usize * size_of::<f32>();
+
+    return ptr;
+}
+
+fn init_param_quant<'a>(data: &'a [u8], offset: &mut usize, n: u32, size_each: u32, gs: u32) -> &'a [QuantizedTensor<'a>]{
+    let mut res: Vec<QuantizedTensor> = Vec::with_capacity(n as usize);
+
+    for _ in 0..n {
+        let mut qt = QuantizedTensor { q: &mut [], s: &mut [] };
+
+        qt.q = u8_to_i8_slice(&data[*offset..(*offset + (size_each as usize * size_of::<i8>()))]);
+        
+        *offset += size_each as usize * size_of::<i8>() ;
+
+        qt.s = u8_to_f32_slice(&data[*offset..(*offset + ((size_each / gs) as usize * size_of::<f32>()))]);
+        
+        *offset += (size_each / gs) as usize * size_of::<f32>();
+
+        res.push(qt);
+    }
+
+    return Box::leak(res.into_boxed_slice());
+}
 
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
@@ -16,39 +51,56 @@ pub struct TranformerArgs {
     n_kv_heads: u32,
     pub vocab_size: u32,
     seq_len: u32,
+    q_type: QuantType,
+    group_size: u32,
 }
 
 pub struct TransformerWeights<'a> {
     token_embedding_table: &'a [f32],
 
     // Attention
-    wq: &'a [f32],
-    wk: &'a [f32],
-    wv: &'a [f32],
-    wo: &'a [f32],
+
+    wq: MaybeUninit<&'a [f32]>,
+    wk: MaybeUninit<&'a [f32]>,
+    wv: MaybeUninit<&'a [f32]>,
+    wo: MaybeUninit<&'a [f32]>,
+    
+    wq_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+    wk_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+    wv_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+    wo_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+
     w_rms_att: &'a [f32],
 
     // FFN
-    w1: &'a [f32],
-    w2: &'a [f32],
-    w3: &'a [f32],
+    w1: MaybeUninit<&'a [f32]>,
+    w2: MaybeUninit<&'a [f32]>,
+    w3: MaybeUninit<&'a [f32]>,
+
+    w1_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+    w2_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+    w3_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+
     w_rms_post_att: &'a [f32],
     w_rms_pre_ffn: &'a [f32],
     w_rms_post_ffn: &'a [f32],
 
     w_rms_final: &'a [f32],
 
-    w_cls: &'a [f32],
+    w_cls: MaybeUninit<&'a [f32]>,
+    w_cls_quant: MaybeUninit<&'a QuantizedTensor<'a>>,
 }
 
-pub struct TransformerState{
+pub struct TransformerState<'a>
+{
     x: Vec<f32>,
     xb: Vec<f32>,
     xb2: Vec<f32>, 
     hb: Vec<f32>,
     hb2: Vec<f32>,
     q: Vec<f32>,
-    att: Vec<f32>, 
+    xq: MaybeUninit<MutableQuantizedTensor<'a>>,
+    hq: MaybeUninit<MutableQuantizedTensor<'a>>,
     logits: Vec<f32>, 
 
     // kv cache
@@ -59,98 +111,138 @@ pub struct TransformerState{
 pub struct Transformer<'a> {
     pub args: TranformerArgs,
     weights: TransformerWeights<'a>,
-    state: TransformerState,
+    state: TransformerState<'a>,
 }
 
 impl<'a> Transformer<'a> {
-    pub fn new(data: &'a Mmap) -> Transformer {
+    pub fn new(data: &'a Mmap) -> Transformer<'a> {
         assert_eq!(data[0..4], [0x6c, 0x6d, 0x72, 0x73], "Model not in llm.rs format.");
 
         let lmrs_version = slice_to_u32(&data[4..8]);
 
-        println!("LMRS version: {}\n", lmrs_version);
+        println!("LMRS version: {}", lmrs_version);
         
-        let (head, body, _) = unsafe { data[8..40].align_to::<TranformerArgs>() };
+        let (head, body, _) = unsafe { data[8..45].align_to::<TranformerArgs>() };
 
         assert!(head.is_empty(), "Data was not aligned");
         
         let cfg = &body[0];
 
         let head_size = cfg.head_size;
-
-        let emb_tab = &data[40..(40 + (cfg.vocab_size * cfg.dim * 4)) as usize];
-
-        let mut offset: usize = (40 + (cfg.vocab_size * cfg.dim * 4)) as usize;
-
-        // Attention weights
-        let rms_att = &data[offset..offset + (cfg.n_layers * cfg.dim * 4) as usize];
-
-        offset = offset + (cfg.n_layers * cfg.dim * 4) as usize;
         
-        let wq = &data[offset..offset + (cfg.n_layers * cfg.dim * (cfg.n_heads * head_size) * 4) as usize];
+        let mut offset: usize = 48;
 
-        offset = offset + (cfg.n_layers * cfg.dim * (cfg.n_heads * head_size) * 4) as usize;
-
-        let wk = &data[offset..offset + (cfg.n_layers * cfg.dim * (cfg.n_kv_heads * head_size) * 4) as usize];
-
-        offset = offset + (cfg.n_layers * cfg.dim * (cfg.n_kv_heads * head_size) * 4) as usize;
-
-        let wv = &data[offset..offset + (cfg.n_layers * cfg.dim * (cfg.n_kv_heads * head_size) * 4) as usize];
-
-        offset = offset + (cfg.n_layers * cfg.dim * (cfg.n_kv_heads * head_size) * 4) as usize;
-
-        let wo = &data[offset..offset + (cfg.n_layers * cfg.dim * (cfg.n_heads * head_size) * 4) as usize];
-
-        offset = offset + (cfg.n_layers * cfg.dim * (cfg.n_heads * head_size) * 4) as usize;
-
-        // FFN weights
-        let rms_post_att = &data[offset..offset + (cfg.n_layers * cfg.dim * 4) as usize];
-
-        offset = offset + (cfg.n_layers * cfg.dim * 4) as usize;
+        let quantized = cfg.q_type != QuantType::None;
         
-        let rms_pre_ffn = &data[offset..offset + (cfg.n_layers * cfg.dim * 4) as usize];
+        if cfg.q_type == QuantType::Q8_0 { println!("Using Q8_0 quantization.\n") };
 
-        offset = offset + (cfg.n_layers * cfg.dim * 4) as usize;
-
-        let w1 = &data[offset..offset + (cfg.n_layers * cfg.dim * cfg.hidden_dim * 4) as usize];
-
-        offset = offset + (cfg.n_layers * cfg.dim * cfg.hidden_dim * 4) as usize;
-
-        let w2 = &data[offset..offset + (cfg.n_layers * cfg.hidden_dim * cfg.dim * 4) as usize];
-
-        offset = offset + (cfg.n_layers * cfg.hidden_dim * cfg.dim * 4) as usize;
-
-        let w3 = &data[offset..offset + (cfg.n_layers * cfg.dim * cfg.hidden_dim * 4) as usize];
-
-        offset = offset + (cfg.n_layers * cfg.dim * cfg.hidden_dim * 4) as usize;
-        
-        let rms_post_ffn = &data[offset..offset + (cfg.n_layers * cfg.dim * 4) as usize];
-
-        offset = offset + (cfg.n_layers * cfg.dim * 4) as usize;
-
-        // Final rms and cls weights
-        let rms_final = &data[offset..offset + (cfg.dim*4) as usize];
-
-        let w_cls = emb_tab;
-
-        let weights = TransformerWeights {
-            token_embedding_table: u8_to_f32_slice(&emb_tab),
-            wq: u8_to_f32_slice(&wq),
-            wk: u8_to_f32_slice(&wk),
-            wv: u8_to_f32_slice(&wv),
-            wo: u8_to_f32_slice(&wo),
-            w_rms_att: u8_to_f32_slice(&rms_att),
-            w1: u8_to_f32_slice(&w1),
-            w2: u8_to_f32_slice(&w2),
-            w3: u8_to_f32_slice(&w3),
-            w_rms_post_att: u8_to_f32_slice(&rms_post_att),
-            w_rms_pre_ffn: u8_to_f32_slice(&rms_pre_ffn),
-            w_rms_post_ffn: u8_to_f32_slice(&rms_post_ffn),
-            w_rms_final: u8_to_f32_slice(&rms_final),
-            w_cls: u8_to_f32_slice(&w_cls),
-        };
-        
         let kv_dim = cfg.head_size * cfg.n_kv_heads;
+
+        if !quantized {
+            let emb_tab = init_param(&data, &mut offset, 1, cfg.vocab_size * cfg.dim);
+            let rms_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+            let wq = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size);
+            let wk = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size);
+            let wv = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size);
+            let wo = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size);
+            let rms_post_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+            let rms_pre_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+            let w1 = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim);
+            let w2 = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim);
+            let w3 = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim);
+            let rms_post_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+            let rms_final = init_param(&data, &mut offset, 1, cfg.dim);
+            
+            let weights = TransformerWeights {
+                token_embedding_table: emb_tab,
+                wq: MaybeUninit::new(wq),
+                wk: MaybeUninit::new(wk),
+                wv: MaybeUninit::new(wv),
+                wo: MaybeUninit::new(wo),
+                wq_quant: MaybeUninit::uninit(),
+                wk_quant: MaybeUninit::uninit(),
+                wv_quant: MaybeUninit::uninit(),
+                wo_quant: MaybeUninit::uninit(),
+                w_rms_att: rms_att,
+                w1: MaybeUninit::new(w1),
+                w2: MaybeUninit::new(w2),
+                w3: MaybeUninit::new(w3),
+                w1_quant: MaybeUninit::uninit(),
+                w2_quant: MaybeUninit::uninit(),
+                w3_quant: MaybeUninit::uninit(),
+                w_rms_post_att: rms_post_att,
+                w_rms_pre_ffn: rms_pre_ffn,
+                w_rms_post_ffn: rms_post_ffn,
+                w_rms_final: rms_final,
+                w_cls: MaybeUninit::new(emb_tab),
+                w_cls_quant: MaybeUninit::uninit(),
+            };
+
+            let state = TransformerState {
+                x: vec![0.0; cfg.dim as usize],
+                xb: vec![0.0; cfg.dim as usize],
+                xb2: vec![0.0; cfg.dim as usize],
+                hb: vec![0.0; cfg.hidden_dim as usize],
+                hb2: vec![0.0; cfg.hidden_dim as usize],
+                q: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
+                xq: MaybeUninit::uninit(),
+                hq: MaybeUninit::uninit(),
+                key_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
+                value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
+                logits: vec![0.0; cfg.vocab_size as usize],
+            };
+            
+            return Transformer {
+                args: *cfg,
+                weights,
+                state,
+            }
+        } 
+
+        let emb_tab_quant = &init_param_quant(&data, &mut offset, 1, cfg.vocab_size * cfg.dim, cfg.group_size)[0];
+
+        let mut emb_tab: Vec<f32> = vec![0.0; (cfg.vocab_size * cfg.dim) as usize];
+
+        dequantize(emb_tab_quant, &mut emb_tab, (cfg.vocab_size * cfg.dim) as usize, cfg.group_size);
+
+        let rms_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+        let wq_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size);
+        let wk_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size, cfg.group_size);
+        let wv_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size, cfg.group_size);
+        let wo_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size);
+        let rms_post_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+        let rms_pre_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+        let w1_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size);
+        let w2_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size);
+        let w3_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size);
+        let rms_post_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+        let rms_final = init_param(&data, &mut offset, 1, cfg.dim); 
+        
+        let weights = TransformerWeights {
+            token_embedding_table: Box::leak(emb_tab.into_boxed_slice()),
+            wq: MaybeUninit::uninit(),
+            wk: MaybeUninit::uninit(),
+            wv: MaybeUninit::uninit(),
+            wo: MaybeUninit::uninit(),
+            wq_quant: MaybeUninit::new(wq_quant),
+            wk_quant: MaybeUninit::new(wk_quant),
+            wv_quant: MaybeUninit::new(wv_quant),
+            wo_quant: MaybeUninit::new(wo_quant),
+            w_rms_att: rms_att,
+            w1: MaybeUninit::uninit(),
+            w2: MaybeUninit::uninit(),
+            w3: MaybeUninit::uninit(),
+            w1_quant: MaybeUninit::new(w1_quant),
+            w2_quant: MaybeUninit::new(w2_quant),
+            w3_quant: MaybeUninit::new(w3_quant),
+            w_rms_post_att: rms_post_att,
+            w_rms_pre_ffn: rms_pre_ffn,
+            w_rms_post_ffn: rms_post_ffn,
+            w_rms_final: rms_final,
+            w_cls: MaybeUninit::uninit(),
+            w_cls_quant: MaybeUninit::new(emb_tab_quant),
+        };
+
         let state = TransformerState {
             x: vec![0.0; cfg.dim as usize],
             xb: vec![0.0; cfg.dim as usize],
@@ -158,13 +250,14 @@ impl<'a> Transformer<'a> {
             hb: vec![0.0; cfg.hidden_dim as usize],
             hb2: vec![0.0; cfg.hidden_dim as usize],
             q: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
+            xq: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.dim) as usize].into_boxed_slice())}),
+            hq: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.hidden_dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.hidden_dim) as usize].into_boxed_slice())}),
             key_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
             value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
-            att: vec![0.0; (cfg.n_heads * cfg.seq_len) as usize],
             logits: vec![0.0; cfg.vocab_size as usize],
         };
-
-        Transformer {
+        
+        return Transformer {
             args: *cfg,
             weights,
             state,
@@ -182,6 +275,9 @@ impl<'a> Transformer<'a> {
         let kv_dim = head_size * p.n_kv_heads;
         let kv_mul = p.n_heads / p.n_kv_heads;
         let hidden_dim = p.hidden_dim;
+        let gs = p.group_size;
+
+        let quantized = p.q_type != QuantType::None;
 
         x.copy_from_slice(&w.token_embedding_table[(token * dim) as usize..(token * dim + dim) as usize]);
 
@@ -198,10 +294,21 @@ impl<'a> Transformer<'a> {
             let mut k = &mut s.key_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
             let mut v = &mut s.value_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
             
-            matmul(&mut s.q, &s.xb, &w.wq[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
-            matmul(k, &s.xb, &w.wk[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
-            matmul(v, &s.xb, &w.wv[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
-            
+            unsafe {
+                if !quantized {
+                    matmul(&mut s.q, &s.xb, &w.wq.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
+                    matmul(k, &s.xb, &w.wk.assume_init()[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
+                    matmul(v, &s.xb, &w.wv.assume_init()[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
+                } else {
+                    let sxq = &mut *s.xq.as_mut_ptr();
+
+                    quantize(sxq, &s.xb, dim as usize, gs);
+                    qmatmul(&mut s.q, sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    qmatmul(&mut k, sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    qmatmul(&mut v, sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                }
+            }
+
             // In gemma they chunk and stack the input matrix to use as complex numbers so actually for calculation, vec[i+1] is vec[i+head_size/2]
             for i in 0..p.n_heads {
                 for j in 0..(head_size/2) {
@@ -223,13 +330,13 @@ impl<'a> Transformer<'a> {
                 }
             }
 
-            for h in 0..p.n_heads {
-                let q = &mut s.q[(h*head_size) as usize..(h*head_size + head_size) as usize];
+            s.xb[..att_dim as usize].par_chunks_mut(head_size as usize).enumerate().for_each( |(h, xb)| {
+                let q = &s.q[(h as u32 * head_size) as usize..(h as u32 * head_size + head_size) as usize];
 
-                let att = &mut s.att[(h*p.seq_len) as usize..(h*p.seq_len + p.seq_len) as usize];
+                let att = &mut vec![0.0; p.seq_len as usize];
 
                 for t in 0..pos+1 {
-                    k = &mut s.key_cache[(loff + t * kv_dim + (h / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h / kv_mul) * head_size + head_size) as usize];
+                    let k = &s.key_cache[(loff + t * kv_dim + (h as u32 / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h as u32 / kv_mul) * head_size + head_size) as usize];
                     
                     let mut score: f32 = 0.0;
 
@@ -252,28 +359,35 @@ impl<'a> Transformer<'a> {
 
                 softmax(&mut att[..(pos+1) as usize]);
 
-                let xb = &mut s.xb[(h * head_size) as usize..(h * head_size + head_size) as usize];
-
                 xb.fill(0.0);
 
                 for t in 0..pos+1 {
-                    v = &mut s.value_cache[(loff + t * kv_dim + (h / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h / kv_mul) * head_size + head_size) as usize];
+                    let v = &s.value_cache[(loff + t * kv_dim + (h as u32 / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h as u32 / kv_mul) * head_size + head_size) as usize];
                     let a = att[t as usize];
 
                     for i in 0..head_size {
                         xb[i as usize] += a * v[i as usize];
                     }
                 }
+            });
+
+            unsafe {
+                if !quantized {
+                    matmul(&mut s.xb2, &s.xb[..att_dim as usize], &w.wo.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
+                } else {
+                    let sxq = &mut *s.xq.as_mut_ptr();
+                    
+                    quantize(sxq, &s.xb[..att_dim as usize], att_dim as usize, gs);
+                    qmatmul(&mut s.xb2, sxq, &w.wo_quant.assume_init()[l as usize], att_dim as usize, gs as usize)
+                }
             }
             
-            matmul(&mut s.xb2, &s.xb[..att_dim as usize], &w.wo[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
-
             rmsnorm(&mut s.xb, &s.xb2, &w.w_rms_post_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
         
             for i in 0..dim {
                 x[i as usize] += s.xb[i as usize];
             }
-
+            
             rmsnorm(&mut s.xb, &x, &w.w_rms_pre_ffn[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
 
             // GeGLU is w2(GELU(w1(x)) * w3(x)) 
@@ -282,8 +396,18 @@ impl<'a> Transformer<'a> {
             // w3 -> up_proj weights
             // GELU using tanh as the approximation
 
-            matmul(&mut s.hb, &s.xb, &w.w1[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
-            matmul(&mut s.hb2, &s.xb, &w.w3[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+            unsafe {
+                if !quantized {
+                    matmul(&mut s.hb, &s.xb, &w.w1.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+                    matmul(&mut s.hb2, &s.xb, &w.w3.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+                } else {
+                    let sxq = &mut *s.xq.as_mut_ptr();
+                    
+                    quantize(sxq, &s.xb, dim as usize, gs);
+                    qmatmul(&mut s.hb, sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    qmatmul(&mut s.hb2, sxq, &w.w3_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                }
+            }
             
             for i in 0..hidden_dim {
                 let mut val = s.hb[i as usize];
@@ -295,21 +419,39 @@ impl<'a> Transformer<'a> {
                 
                 s.hb[i as usize] = val;
             }
-            
-            matmul(&mut s.xb, &s.hb, &w.w2[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+
+            unsafe {
+                if !quantized {
+                    matmul(&mut s.xb, &s.hb, &w.w2.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+                } else {
+                    let shq = &mut *s.hq.as_mut_ptr();
+
+                    quantize(shq, &s.hb, hidden_dim as usize, gs);
+                    qmatmul(&mut s.xb, shq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, gs as usize);
+                }
+            }
 
             rmsnorm(&mut s.xb2, &s.xb, &w.w_rms_post_ffn[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
             
             for i in 0..dim {
                 x[i as usize] += s.xb2[i as usize];
-            }
+            }    
         }
 
         s.xb.copy_from_slice(x);
 
         rmsnorm(x, &s.xb, &w.w_rms_final, dim as usize);
         
-        matmul(&mut s.logits, &x, &w.w_cls);
+        unsafe {
+            if !quantized {
+                matmul(&mut s.logits, &x, &w.w_cls.assume_init());
+            } else {
+                let sxq = &mut *s.xq.as_mut_ptr();
+                
+                quantize(sxq, &x, dim as usize, gs);
+                qmatmul(&mut s.logits, sxq, &w.w_cls_quant.assume_init(), dim as usize, gs as usize);
+            }
+        }
 
         for d in 0..dim {
             s.logits[d as usize] /= 30.0;

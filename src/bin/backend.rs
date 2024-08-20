@@ -5,9 +5,9 @@ use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::tungstenite::Result;
 use tokio_tungstenite::tungstenite::Message;
 
-use llmrs::transformer::Transformer;
-use llmrs::tokenizer::Tokenizer;
-use llmrs::sampler::Sampler;
+use lmrs::transformer::Transformer;
+use lmrs::tokenizer::Tokenizer;
+use lmrs::sampler::Sampler;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::fs::File;
