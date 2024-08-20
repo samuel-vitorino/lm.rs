@@ -55,7 +55,7 @@ And you are good to go:
 
 Other arguments include tokenizer, temperature, top-p, show-metrics etc. To check available arguments run with --help.
 
---
+---
 
 To run the backend for the [WebUI](), first compile:
 
