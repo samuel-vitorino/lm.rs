@@ -199,6 +199,8 @@ impl<'a> Transformer<'a> {
             }
         } 
 
+        println!("Loading weights...");
+
         let emb_tab_quant = &init_param_quant(&data, &mut offset, 1, cfg.vocab_size * cfg.dim, cfg.group_size)[0];
 
         let mut emb_tab: Vec<f32> = vec![0.0; (cfg.vocab_size * cfg.dim) as usize];
@@ -256,6 +258,8 @@ impl<'a> Transformer<'a> {
             value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
             logits: vec![0.0; cfg.vocab_size as usize],
         };
+        
+        println!("Done.\n");
         
         return Transformer {
             args: *cfg,
