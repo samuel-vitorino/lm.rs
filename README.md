@@ -57,7 +57,7 @@ Other arguments include tokenizer, temperature, top-p, show-metrics etc. To chec
 
 ---
 
-To run the backend for the [WebUI](), first compile:
+To run the backend for the [WebUI](https://github.com/samuel-vitorino/lm.rs-webui), first compile:
 
 ```properties
 cargo build --release --features backend --bin backend
