@@ -125,7 +125,7 @@ fn main() {
         next = sampler.sample(logits);
         pos += 1;
 
-        if user_idx >= num_prompt_tokens && next != 1 {
+        if user_idx >= num_prompt_tokens && next != 1 && next != 107 {
             let piece = tokenizer.decode(token);
             print!("{}", piece);
             io::stdout().flush().unwrap();

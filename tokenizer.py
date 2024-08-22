@@ -57,10 +57,7 @@ class Tokenizer:
         # record the max token length
         max_token_length = max(len(t) for t in tokens)
 
-        # write to a binary file
-        # the tokenizer.bin file is the same as .model file, but .bin
-        tokenizer_bin = self.model_path.replace('.model', '.bin')
-        with open(tokenizer_bin, 'wb') as f:
+        with open("tokenizer.bin", 'wb') as f:
             f.write(struct.pack("II", self.n_words, max_token_length))
             for bytes, score in zip(tokens, scores):
                 f.write(struct.pack("fI", score, len(bytes)))

@@ -102,6 +102,7 @@ pub struct TransformerState<'a>
     hb2: Vec<f32>,
     q: Vec<f32>,
     xq: MaybeUninit<MutableQuantizedTensor<'a>>,
+    xq1: MaybeUninit<MutableQuantizedTensor<'a>>,
     hq: MaybeUninit<MutableQuantizedTensor<'a>>,
     logits: Vec<f32>, 
 
@@ -189,6 +190,7 @@ impl<'a> Transformer<'a> {
                 hb2: vec![0.0; cfg.hidden_dim as usize],
                 q: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
                 xq: MaybeUninit::uninit(),
+                xq1: MaybeUninit::uninit(),
                 hq: MaybeUninit::uninit(),
                 key_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
                 value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
@@ -257,6 +259,7 @@ impl<'a> Transformer<'a> {
             hb2: vec![0.0; cfg.hidden_dim as usize],
             q: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
             xq: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.dim) as usize].into_boxed_slice())}),
+            xq1: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.dim) as usize].into_boxed_slice())}),
             hq: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.hidden_dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.hidden_dim) as usize].into_boxed_slice())}),
             key_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
             value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
@@ -383,10 +386,10 @@ impl<'a> Transformer<'a> {
                 if !quantized {
                     matmul(&mut s.xb2, &s.xb3, &w.wo.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
                 } else {
-                    let sxq = &mut *s.xq.as_mut_ptr();
+                    let sxq1 = &mut *s.xq1.as_mut_ptr();
                     
-                    quantize(sxq, &s.xb3, att_dim as usize, gs);
-                    qmatmul(&mut s.xb2, sxq, &w.wo_quant.assume_init()[l as usize], att_dim as usize, gs as usize)
+                    quantize(sxq1, &s.xb3, att_dim as usize, gs);
+                    qmatmul(&mut s.xb2, sxq1, &w.wo_quant.assume_init()[l as usize], att_dim as usize, gs as usize)
                 }
             }
             
@@ -493,6 +496,10 @@ impl<'a> Drop for Transformer<'a> {
                 let sxq = &mut *self.state.xq.as_mut_ptr();
                 dealloc(sxq.q.as_ptr() as *mut u8, Layout::array::<i8>(sxq.q.len()).unwrap());
                 dealloc(sxq.s.as_ptr() as *mut u8, Layout::array::<f32>(sxq.s.len()).unwrap());
+                
+                let sxq1 = &mut *self.state.xq1.as_mut_ptr();
+                dealloc(sxq1.q.as_ptr() as *mut u8, Layout::array::<i8>(sxq1.q.len()).unwrap());
+                dealloc(sxq1.s.as_ptr() as *mut u8, Layout::array::<f32>(sxq1.s.len()).unwrap());
                 
                 let shq = &mut *self.state.hq.as_mut_ptr();
                 dealloc(shq.q.as_ptr() as *mut u8, Layout::array::<i8>(shq.q.len()).unwrap());
