@@ -259,7 +259,7 @@ impl<'a> Transformer<'a> {
             hb2: vec![0.0; cfg.hidden_dim as usize],
             q: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
             xq: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.dim) as usize].into_boxed_slice())}),
-            xq1: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.dim) as usize].into_boxed_slice())}),
+            xq1: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.head_size*cfg.n_heads) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.head_size*cfg.n_heads) as usize].into_boxed_slice())}),
             hq: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.hidden_dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.hidden_dim) as usize].into_boxed_slice())}),
             key_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
             value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
