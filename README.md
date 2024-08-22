@@ -6,7 +6,7 @@
 
 Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code that can perform full inference on Google's Gemma models on the CPU (only tested the 2B-it).
 
-Disclaimer: most of the code could be optimized and improved (now running at 8.4 tok/s on my 8-core laptop at Q8_0 quantization with SIMD instructions). This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
+Disclaimer: most of the code could be optimized and improved (now running at 10.56 tok/s on my 8-core laptop at Q8_0 quantization, and at 20 tok/s on a 16-core AMD EPYC). This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
 Some things to do in the future:
 
@@ -18,6 +18,10 @@ Some things to do in the future:
 - [X] Quantization support (int8).
 
 ## Instructions
+
+You can download the prepared gemma2-2b int8 quantized model and tokenizer model files in the lmrs format from [huggingface](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q8_0-LMRS). If you'd prefer to convert the model published by Google on [huggingface](https://huggingface.co/google/gemma-2-2b-it) yourself, please refer to the following section. Otherwise, you can skip ahead to the build section.
+
+### Model Conversion
 
 Install additional python dependencies (assuming you already have pytorch installed) used in export.py and tokenizer.py:
 
@@ -41,10 +45,12 @@ Use the tokenizer.py script to convert the tokenizer.model sentencepiece tokeniz
 python tokenizer.py
 ```
 
-Finally compile the rust code with cargo:
+### Build
+
+Compile the rust code with cargo (make sure to pass the target-cpu flag):
 
 ```properties
-cargo build --release --bin chat
+RUSTFLAGS="-C target-cpu=native" cargo build --release --bin chat
 ```
 
 And you are good to go:
@@ -60,7 +66,7 @@ Other arguments include tokenizer, temperature, top-p, show-metrics etc. To chec
 To run the backend for the [WebUI](https://github.com/samuel-vitorino/lm.rs-webui), first compile:
 
 ```properties
-cargo build --release --features backend --bin backend
+RUSTFLAGS="-C target-cpu=native" cargo build --release --features backend --bin backend
 ```
 
 Then run:
