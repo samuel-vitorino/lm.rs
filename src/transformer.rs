@@ -10,6 +10,7 @@ use crate::quantization::*;
 
 use memmap2::Mmap;
 use rayon::prelude::*;
+use std::alloc::{dealloc, Layout};
 use std::mem::{MaybeUninit, size_of};
 
 fn init_param<'a>(data: &'a [u8], offset: &mut usize, n: u32, size_each: u32) -> &'a [f32]{
@@ -88,7 +89,7 @@ pub struct TransformerWeights<'a> {
     w_rms_final: &'a [f32],
 
     w_cls: MaybeUninit<&'a [f32]>,
-    w_cls_quant: MaybeUninit<&'a QuantizedTensor<'a>>,
+    w_cls_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
 }
 
 pub struct TransformerState<'a>
@@ -201,11 +202,11 @@ impl<'a> Transformer<'a> {
 
         println!("Loading weights...");
 
-        let emb_tab_quant = &init_param_quant(&data, &mut offset, 1, cfg.vocab_size * cfg.dim, cfg.group_size)[0];
+        let emb_tab_quant = init_param_quant(&data, &mut offset, 1, cfg.vocab_size * cfg.dim, cfg.group_size);
 
         let mut emb_tab: Vec<f32> = vec![0.0; (cfg.vocab_size * cfg.dim) as usize];
 
-        dequantize(emb_tab_quant, &mut emb_tab, (cfg.vocab_size * cfg.dim) as usize, cfg.group_size);
+        dequantize(&emb_tab_quant[0], &mut emb_tab, (cfg.vocab_size * cfg.dim) as usize, cfg.group_size);
 
         let rms_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
         let wq_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size);
@@ -453,7 +454,7 @@ impl<'a> Transformer<'a> {
                 let sxq = &mut *s.xq.as_mut_ptr();
                 
                 quantize(sxq, &x, dim as usize, gs);
-                qmatmul(&mut s.logits, sxq, &w.w_cls_quant.assume_init(), dim as usize, gs as usize);
+                qmatmul(&mut s.logits, sxq, &w.w_cls_quant.assume_init()[0], dim as usize, gs as usize);
             }
         }
 
@@ -464,5 +465,36 @@ impl<'a> Transformer<'a> {
         }
         
         return &mut s.logits;
+    }
+}
+
+// Deallocate fields created with Box::leak
+impl<'a> Drop for Transformer<'a> {
+    fn drop(&mut self) {
+        if self.args.q_type != QuantType::None {
+            unsafe {
+                // Weights
+                dealloc(self.weights.token_embedding_table.as_ptr() as *mut u8, Layout::array::<f32>(self.weights.token_embedding_table.len()).unwrap());
+                
+                let layer_weights_layout = Layout::array::<QuantizedTensor>(self.args.n_layers as usize).unwrap();
+                dealloc(self.weights.wq_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.wk_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.wv_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.wo_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.w1_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.w2_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.w3_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.w_cls_quant.assume_init().as_ptr() as *mut u8, Layout::array::<QuantizedTensor>(self.weights.w_cls_quant.assume_init().len()).unwrap());
+
+                // State
+                let sxq = &mut *self.state.xq.as_mut_ptr();
+                dealloc(sxq.q.as_ptr() as *mut u8, Layout::array::<i8>(sxq.q.len()).unwrap());
+                dealloc(sxq.s.as_ptr() as *mut u8, Layout::array::<f32>(sxq.s.len()).unwrap());
+                
+                let shq = &mut *self.state.hq.as_mut_ptr();
+                dealloc(shq.q.as_ptr() as *mut u8, Layout::array::<i8>(shq.q.len()).unwrap());
+                dealloc(shq.s.as_ptr() as *mut u8, Layout::array::<f32>(shq.s.len()).unwrap());
+            }
+        }
     }
 }
