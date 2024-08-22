@@ -34,7 +34,7 @@ Download the .safetensors, config.json and tokenizer.model files from [huggingfa
 Use the export.py script to convert the model bfloat16 weights into the LMRS format:
 
 ```properties
-python export.py --files [ordered .safetensor files] --config [model config.json] --save_path [name and path to save]
+python export.py --files [ordered .safetensor files] --config [model config.json] --save-path [name and path to save]
 ```
 
 To export the int8 quantized version use the --quantize flag. The model size should be 4X smaller (from ~9.8G to ~2.5G, depending on the group size).

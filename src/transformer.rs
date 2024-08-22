@@ -97,6 +97,7 @@ pub struct TransformerState<'a>
     x: Vec<f32>,
     xb: Vec<f32>,
     xb2: Vec<f32>, 
+    xb3: Vec<f32>, 
     hb: Vec<f32>,
     hb2: Vec<f32>,
     q: Vec<f32>,
@@ -183,6 +184,7 @@ impl<'a> Transformer<'a> {
                 x: vec![0.0; cfg.dim as usize],
                 xb: vec![0.0; cfg.dim as usize],
                 xb2: vec![0.0; cfg.dim as usize],
+                xb3: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
                 hb: vec![0.0; cfg.hidden_dim as usize],
                 hb2: vec![0.0; cfg.hidden_dim as usize],
                 q: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
@@ -250,6 +252,7 @@ impl<'a> Transformer<'a> {
             x: vec![0.0; cfg.dim as usize],
             xb: vec![0.0; cfg.dim as usize],
             xb2: vec![0.0; cfg.dim as usize],
+            xb3: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
             hb: vec![0.0; cfg.hidden_dim as usize],
             hb2: vec![0.0; cfg.hidden_dim as usize],
             q: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
@@ -335,7 +338,7 @@ impl<'a> Transformer<'a> {
                 }
             }
 
-            s.xb[..att_dim as usize].par_chunks_mut(head_size as usize).enumerate().for_each( |(h, xb)| {
+            s.xb3.par_chunks_mut(head_size as usize).enumerate().for_each( |(h, xb)| {
                 let q = &s.q[(h as u32 * head_size) as usize..(h as u32 * head_size + head_size) as usize];
 
                 let att = &mut vec![0.0; p.seq_len as usize];
@@ -378,11 +381,11 @@ impl<'a> Transformer<'a> {
 
             unsafe {
                 if !quantized {
-                    matmul(&mut s.xb2, &s.xb[..att_dim as usize], &w.wo.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
+                    matmul(&mut s.xb2, &s.xb3, &w.wo.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
                 } else {
                     let sxq = &mut *s.xq.as_mut_ptr();
                     
-                    quantize(sxq, &s.xb[..att_dim as usize], att_dim as usize, gs);
+                    quantize(sxq, &s.xb3, att_dim as usize, gs);
                     qmatmul(&mut s.xb2, sxq, &w.wo_quant.assume_init()[l as usize], att_dim as usize, gs as usize)
                 }
             }
