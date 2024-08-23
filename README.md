@@ -8,17 +8,19 @@ lmrs: run inference on Gemma 2 models locally on the cpu with rust
 
 <h3>
 
-[WebUI](https://github.com/samuel-vitorino/lm.rs-webui) | [Hugging Face](https://huggingface.co/collections/samuel-vitorino/lmrs-66c7da8a50ce52b61bee70b7) | [Video Demo]() 
+[WebUI](https://github.com/samuel-vitorino/lm.rs-webui) | [Hugging Face](https://huggingface.co/collections/samuel-vitorino/lmrs-66c7da8a50ce52b61bee70b7) | [Video Demo](https://www.youtube.com/watch?v=FAIN5Jxc0nE) 
 
 </h3>
 
 </div>
 
+---
+
 **Now supporting Gemma 2 2B, 9B and quantization! For Gemma 1 2B refer to the gemma1 branch (outdated). [WebUI](https://github.com/samuel-vitorino/lm.rs-webui) also now available.**
 
-Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code that can perform full inference on Google's Gemma models on the CPU (only tested the 2B-it).
+Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code that can perform full inference on Google's Gemma models on the CPU.
 
-Disclaimer: most of the code could be optimized and improved (2B now running at 11.56 tok/s on my 8-core laptop at Q8_0 quantization, and at 20 tok/s on a 16-core AMD EPYC. 9B running at and 7 tok/s, respectively). This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
+Disclaimer: most of the code could be optimized and improved (2B now running at 11.56 tok/s on my 8-core laptop at Q8_0 quantization, and at 20 tok/s on a 16-core AMD EPYC. 9B running at 3 tok/s and 7 tok/s, respectively). This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
 Some things to do in the future:
 
