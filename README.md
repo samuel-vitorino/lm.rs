@@ -1,15 +1,18 @@
 <div align="center">
-    <picture>
-        <img alt="lmrs logo" src="repo_cover.svg">
-    </picture>
 
-    lmrs: run inference on Gemma 2 models locally on the cpu with rust
+<picture>
+    <img alt="lmrs logo" src="repo_cover.svg">
+</picture>
 
-    <h3>[WebUI](https://github.com/samuel-vitorino/lm.rs-webui) | [Huggingface](https://huggingface.co/collections/samuel-vitorino/lmrs-66c7da8a50ce52b61bee70b7) | [Video Demo]() </h3>
+lmrs: run inference on Gemma 2 models locally on the cpu with rust
+
+<h3>
+
+[WebUI](https://github.com/samuel-vitorino/lm.rs-webui) | [Hugging Face](https://huggingface.co/collections/samuel-vitorino/lmrs-66c7da8a50ce52b61bee70b7) | [Video Demo]() 
+
+</h3>
+
 </div>
-
-<p align="center">
-</p>
 
 **Now supporting Gemma 2 2B, 9B and quantization! For Gemma 1 2B refer to the gemma1 branch (outdated). [WebUI](https://github.com/samuel-vitorino/lm.rs-webui) also now available.**
 
