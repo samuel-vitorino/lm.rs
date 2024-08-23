@@ -1,17 +1,26 @@
-# Implementation of Gemma 2 compatible inference code in Rust
+<div align="center">
+    <picture>
+        <img alt="lmrs logo" src="repo_cover.svg">
+    </picture>
 
-![Gemma greeting the user](repo_cover.png)
+    lmrs: run inference on Gemma 2 models locally on the cpu with rust
 
-**Now supporting Gemma 2 2B and quantization! For Gemma 1 2B refer to the gemma1 branch. [WebUI](https://github.com/samuel-vitorino/lm.rs-webui) also now available. [Terminal Chat Video Demo](https://www.youtube.com/watch?v=3HHl2KSPAc8).** 
+    <h3>[WebUI](https://github.com/samuel-vitorino/lm.rs-webui) | [Huggingface](https://huggingface.co/collections/samuel-vitorino/lmrs-66c7da8a50ce52b61bee70b7) | [Video Demo]() </h3>
+</div>
+
+<p align="center">
+</p>
+
+**Now supporting Gemma 2 2B, 9B and quantization! For Gemma 1 2B refer to the gemma1 branch (outdated). [WebUI](https://github.com/samuel-vitorino/lm.rs-webui) also now available.**
 
 Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code that can perform full inference on Google's Gemma models on the CPU (only tested the 2B-it).
 
-Disclaimer: most of the code could be optimized and improved (now running at 10.56 tok/s on my 8-core laptop at Q8_0 quantization, and at 20 tok/s on a 16-core AMD EPYC). This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
+Disclaimer: most of the code could be optimized and improved (2B now running at 11.56 tok/s on my 8-core laptop at Q8_0 quantization, and at 20 tok/s on a 16-core AMD EPYC. 9B running at and 7 tok/s, respectively). This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
 Some things to do in the future:
 
 - [X] Add other sampling methods.
-- [ ] Test the 9B and 27B models (would probably have to change the code).
+- [X] Test the 9B and 27B models (tested the 9B, 27B would be too slow).
 - [X] Parallelize the multi head attention loop.
 - [X] Add performance metrics.
 - [ ] Ability to give a system prompt
@@ -19,7 +28,7 @@ Some things to do in the future:
 
 ## Instructions
 
-You can download the prepared gemma2-2b int8 quantized model and tokenizer model files in the lmrs format from [huggingface](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q8_0-LMRS). If you'd prefer to convert the model published by Google on [huggingface](https://huggingface.co/google/gemma-2-2b-it) yourself, please refer to the following section. Otherwise, you can skip ahead to the build section.
+You can download the prepared [gemma2-2b-it-q8_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q8_0-LMRS)/[gemma2-9b-it-q8_0](https://huggingface.co/samuel-vitorino/gemma2-9b-it-q8_0-LMRS) quantized model and tokenizer model files in the lmrs format from huggingface. If you'd prefer to convert the model published by Google on [huggingface](https://huggingface.co/google/gemma-2-2b-it) yourself, please refer to the following section. Otherwise, you can skip ahead to the build section.
 
 ### Model Conversion
 
