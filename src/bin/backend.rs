@@ -124,7 +124,7 @@ async fn main() -> Result<()> {
                     next = sampler.sample(logits);
                     pos += 1;
 
-                    if user_idx >= num_prompt_tokens && next != 1 && next != 107 {
+                    if user_idx >= num_prompt_tokens && next != 1 && token != 107 {
                         let piece = tokenizer.decode(token);
                         if write.send(piece.into()).await.is_err() {
                             break;
