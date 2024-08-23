@@ -4,7 +4,7 @@
     <img alt="lmrs logo" src="repo_cover.svg">
 </picture>
 
-lmrs: run inference on Gemma 2 models locally on the cpu with rust
+lmrs: run inference on Gemma 2 models locally on the cpu with Rust
 
 <h3>
 
