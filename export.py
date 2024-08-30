@@ -40,7 +40,7 @@ def write_tensors_by_group(files, layer_pattern, out_file, quantize_type=0, grou
                 serialize_fp32(out_file, s)
 
                 ew.append(err)
-                print(f"{layer} quantized {tuple(w.shape)} to {"Q8_0" if quantize_type == 1 else "Q4_0"} with max error {err}")
+                print(f"{layer} quantized {tuple(w.shape)} to {'Q8_0' if quantize_type == 1 else 'Q4_0'} with max error {err}")
 
     return ew
 
