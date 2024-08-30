@@ -72,7 +72,7 @@ def quantize_q40(w, group_size):
     
     wmax = torch.abs(w).max(dim=1).values
     
-    scale = wmax / -8.0
+    scale = wmax / -7.5
     
     quant = w / scale[:,None]
 
