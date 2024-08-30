@@ -17,7 +17,7 @@ def extract_layer_number(key):
             return int(parts[i + 1])
     return 0
 
-def write_tensors_by_group(files, layer_pattern, out_file, quantize_type=0):
+def write_tensors_by_group(files, layer_pattern, out_file, quantize_type=0, group_size=128):
     ew = []
 
     for f in files:
@@ -39,8 +39,8 @@ def write_tensors_by_group(files, layer_pattern, out_file, quantize_type=0):
                 serialize_int8(out_file, q)
                 serialize_fp32(out_file, s)
 
-                ew.append((err, w.shape))
-                print(f"{layer} quantized {tuple(w.shape)} to Q8_0 with max error {err}")
+                ew.append(err)
+                print(f"{layer} quantized {tuple(w.shape)} to {"Q8_0" if quantize_type == 1 else "Q4_0"} with max error {err}")
 
     return ew
 
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     
     if args.quantize:
         ew.sort(reverse=True)
-        print(f"Max quantization group error across all weights: {ew[0][0]}")
+        print(f"Max quantization group error across all weights: {ew[0]}. Mean: {sum(ew)/len(ew)}.")
 
     print("Successfully converted gemma model to lmrs format.")
 
