@@ -17,7 +17,7 @@ def extract_layer_number(key):
             return int(parts[i + 1])
     return 0
 
-def write_tensors_by_group(files, layer_pattern, out_file, quantize=False):
+def write_tensors_by_group(files, layer_pattern, out_file, quantize_type=0):
     ew = []
 
     for f in files:
@@ -28,11 +28,14 @@ def write_tensors_by_group(files, layer_pattern, out_file, quantize=False):
             
             w = f.get_tensor(layer)
 
-            if not quantize:
+            if quantize_type == 0:
                 serialize_fp32(out_file, w)
             else:
-                q, s, err = quantize_q80(w, group_size)
-                
+                if quantize_type == 1:
+                    q, s, err = quantize_q80(w, group_size)
+                elif quantize_type == 2:
+                    q, s, err = quantize_q40(w, group_size)
+
                 serialize_int8(out_file, q)
                 serialize_fp32(out_file, s)
 
@@ -55,6 +58,43 @@ def serialize_int8(file, tensor, chunk_size=1024*1024):
         chunk = tensor[i:i + chunk_size]
         file.write(chunk.tobytes())
 
+def quantize_q40(w, group_size):
+    """
+    takes a tensor and returns the Q4_0 quantized version
+    i.e. quantization into int4, range [0,15]
+    """
+
+    assert w.numel() % group_size == 0
+    assert group_size % 2 == 0
+
+    w = w.float() # convert to float32
+    w = w.reshape(-1, group_size)
+    
+    wmax = torch.abs(w).max(dim=1).values
+    
+    scale = wmax / -8.0
+    
+    quant = w / scale[:,None]
+
+    uint8val = (quant + 8).round().to(torch.uint8).clamp(0, 15)
+    
+    fp32val = ((uint8val.float() - 8) * scale[:,None]).view(-1)
+    fp32valr = fp32val.reshape(-1, group_size)
+    
+    err = torch.abs(fp32valr - w).max(dim=1).values
+    
+    maxerr = err.max().item()
+
+    # Pack two int4 values into one byte (int8)
+    
+    uint8val = uint8val.view(quant.shape[0], quant.shape[1]//2, 2)
+
+    packed_quant = torch.zeros(quant.shape[0], quant.shape[1]//2, dtype=torch.uint8)
+
+    packed_quant = uint8val[..., 0] | (uint8val[..., 1] << 4)
+    
+    return packed_quant, scale, maxerr 
+
 # https://github.com/karpathy/llama2.c/blob/master/export.py
 def quantize_q80(w, group_size):
     """
@@ -62,7 +102,7 @@ def quantize_q80(w, group_size):
     i.e. symmetric quantization into int8, range [-127,127]
     """
     assert w.numel() % group_size == 0
-    ori_shape = w.shape
+    
     w = w.float() # convert to float32
     w = w.reshape(-1, group_size)
     # find the max in each group
@@ -87,14 +127,18 @@ if __name__ == "__main__":
     parser.add_argument('--files', type=str, nargs='+', required=True, help='a list of safetensor file paths')
     parser.add_argument('--config', type=str, required=True, help='path of the config file of the model')
     parser.add_argument('--save-path', type=str, required=True, help='path of the output model file')
-    parser.add_argument('--quantize', action='store_true', default=False, help='use Q8_0 quantization')
-    parser.add_argument('--group-size', type=int, default=256, help='groups to use in quantization')
+    parser.add_argument('--quantize', action='store_true', default=False, help='use quantization')
+    parser.add_argument('--quantize-type', type=int, default=1, help='type of quantization - 1 for Q8_0, 2 for Q4_0')
+    parser.add_argument('--group-size', type=int, default=128, help='groups to use in quantization')
 
     version = 3
 
     args = parser.parse_args()
+
+    if args.quantize:
+        assert args.quantize_type == 1 or args.quantize_type == 2
     
-    quantize_type = 1 if args.quantize else 0 # 0 for no quantization, 1 for Q8_0
+    quantize_type = args.quantize_type if args.quantize else 0 # 0 for no quantization, 1 for Q8_0, 2 for Q4_0
     group_size = args.group_size
 
     ew = []
@@ -130,21 +174,21 @@ if __name__ == "__main__":
         out_file.write(b'\0' * pad)
         
         # Embedding table / cls layer weights
-        ew.extend(write_tensors_by_group(files, "model.embed_tokens.weight", out_file, quantize=args.quantize))
+        ew.extend(write_tensors_by_group(files, "model.embed_tokens.weight", out_file, quantize_type=quantize_type))
 
         # Attention weights
         write_tensors_by_group(files, "input_layernorm", out_file)
-        ew.extend(write_tensors_by_group(files, "self_attn.q_proj", out_file, quantize=args.quantize))
-        ew.extend(write_tensors_by_group(files, "self_attn.k_proj", out_file, quantize=args.quantize))
-        ew.extend(write_tensors_by_group(files, "self_attn.v_proj", out_file, quantize=args.quantize))
-        ew.extend(write_tensors_by_group(files, "self_attn.o_proj", out_file, quantize=args.quantize))
+        ew.extend(write_tensors_by_group(files, "self_attn.q_proj", out_file, quantize_type=quantize_type))
+        ew.extend(write_tensors_by_group(files, "self_attn.k_proj", out_file, quantize_type=quantize_type))
+        ew.extend(write_tensors_by_group(files, "self_attn.v_proj", out_file, quantize_type=quantize_type))
+        ew.extend(write_tensors_by_group(files, "self_attn.o_proj", out_file, quantize_type=quantize_type))
         
         # FFN weights
         write_tensors_by_group(files, "post_attention_layernorm", out_file)
         write_tensors_by_group(files, "pre_feedforward_layernorm", out_file)
-        ew.extend(write_tensors_by_group(files, "mlp.gate_proj", out_file, quantize=args.quantize))
-        ew.extend(write_tensors_by_group(files, "mlp.down_proj", out_file, quantize=args.quantize))
-        ew.extend(write_tensors_by_group(files, "mlp.up_proj", out_file, quantize=args.quantize))
+        ew.extend(write_tensors_by_group(files, "mlp.gate_proj", out_file, quantize_type=quantize_type))
+        ew.extend(write_tensors_by_group(files, "mlp.down_proj", out_file, quantize_type=quantize_type))
+        ew.extend(write_tensors_by_group(files, "mlp.up_proj", out_file, quantize_type=quantize_type))
         write_tensors_by_group(files, "post_feedforward_layernorm", out_file)
          
         # Final norm weights

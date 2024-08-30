@@ -1,7 +1,7 @@
 
 use crate::quantization::{QuantizedTensor, MutableQuantizedTensor};
 
-use std::convert::TryInto;
+use std::{convert::TryInto};
 use rayon::prelude::*;
 use wide::{f32x8, i32x8};
 
@@ -110,7 +110,7 @@ pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
     });
 }
 
-pub fn qmatmul(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, gs: usize) {
+pub fn matmul_q8(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, gs: usize) {
     let n_simd = gs / 8;
     
     xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
@@ -127,6 +127,38 @@ pub fn qmatmul(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor
             }
 
             (ival.reduce_add() as f32) * w.s[(ni + j) / gs] * x.s[j / gs]
+        }).sum();
+    });
+}
+
+pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, gs: usize) {
+    let group_size = gs / 2;
+    let n_simd = group_size / 8;
+
+    let mask_a = i32x8::new([0x0F; 8]);
+    let mask_b = i32x8::new([0xF0; 8]);
+    
+    xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
+        let ni: usize = i * n / 2;
+
+        *xout_elem = (0..=(n/2 - group_size)).step_by(group_size as usize).map(|j| {
+            let mut ival = i32x8::ZERO;
+
+            for k in 0..n_simd {
+                let x_vec = i32x8::from(&x.q[j+k*8..j+k*8+8]);
+                let w_vec = i32x8::from(&w.q[ni+j+k*8..ni+j+k*8+8]);
+
+                let x_a = (x_vec & mask_a) - 8;
+                let w_a = (w_vec & mask_a) - 8;
+                
+                let x_b = (mask_a & ((x_vec & mask_b) >> 4)) - 8;
+                let w_b = (mask_a & ((w_vec & mask_b) >> 4)) - 8;
+
+                ival += x_a * w_a;
+                ival += x_b * w_b;
+            }
+
+            (ival.reduce_add() as f32) * w.s[(ni + j) / group_size] * x.s[j / group_size]
         }).sum();
     });
 }

@@ -3,7 +3,8 @@ use crate::functional::u8_to_f32_slice;
 use crate::functional::u8_to_i8_slice;
 use crate::functional::rmsnorm;
 use crate::functional::matmul;
-use crate::functional::qmatmul;
+use crate::functional::matmul_q4;
+use crate::functional::matmul_q8;
 use crate::functional::softmax;
 
 use crate::quantization::*;
@@ -21,19 +22,25 @@ fn init_param<'a>(data: &'a [u8], offset: &mut usize, n: u32, size_each: u32) ->
     return ptr;
 }
 
-fn init_param_quant<'a>(data: &'a [u8], offset: &mut usize, n: u32, size_each: u32, gs: u32) -> &'a [QuantizedTensor<'a>]{
+fn init_param_quant<'a>(data: &'a [u8], offset: &mut usize, n: u32, size_each: u32, gs: u32, q_type: QuantType) -> &'a [QuantizedTensor<'a>]{
     let mut res: Vec<QuantizedTensor> = Vec::with_capacity(n as usize);
+    let groups = (size_each / gs) as usize;
+    let mut size = size_each;
+    
+    if q_type == QuantType::Q4_0 {
+        size /= 2;
+    }
 
     for _ in 0..n {
         let mut qt = QuantizedTensor { q: &mut [], s: &mut [] };
 
-        qt.q = u8_to_i8_slice(&data[*offset..(*offset + (size_each as usize * size_of::<i8>()))]);
+        qt.q = u8_to_i8_slice(&data[*offset..(*offset + (size as usize * size_of::<i8>()))]);
         
-        *offset += size_each as usize * size_of::<i8>() ;
+        *offset += size as usize * size_of::<i8>() ;
 
-        qt.s = u8_to_f32_slice(&data[*offset..(*offset + ((size_each / gs) as usize * size_of::<f32>()))]);
+        qt.s = u8_to_f32_slice(&data[*offset..(*offset + (groups * size_of::<f32>()))]);
         
-        *offset += (size_each / gs) as usize * size_of::<f32>();
+        *offset += groups as usize * size_of::<f32>();
 
         res.push(qt);
     }
@@ -206,22 +213,22 @@ impl<'a> Transformer<'a> {
 
         println!("Loading weights...");
 
-        let emb_tab_quant = init_param_quant(&data, &mut offset, 1, cfg.vocab_size * cfg.dim, cfg.group_size);
+        let emb_tab_quant = init_param_quant(&data, &mut offset, 1, cfg.vocab_size * cfg.dim, cfg.group_size, cfg.q_type);
 
         let mut emb_tab: Vec<f32> = vec![0.0; (cfg.vocab_size * cfg.dim) as usize];
 
-        dequantize(&emb_tab_quant[0], &mut emb_tab, (cfg.vocab_size * cfg.dim) as usize, cfg.group_size);
+        dequantize(&emb_tab_quant[0], &mut emb_tab, (cfg.vocab_size * cfg.dim) as usize, cfg.group_size, cfg.q_type);
 
         let rms_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
-        let wq_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size);
-        let wk_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size, cfg.group_size);
-        let wv_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size, cfg.group_size);
-        let wo_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size);
+        let wq_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
+        let wk_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size, cfg.group_size, cfg.q_type);
+        let wv_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size, cfg.group_size, cfg.q_type);
+        let wo_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
         let rms_post_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
         let rms_pre_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
-        let w1_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size);
-        let w2_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size);
-        let w3_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size);
+        let w1_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
+        let w2_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
+        let w3_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
         let rms_post_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
         let rms_final = init_param(&data, &mut offset, 1, cfg.dim); 
         
@@ -297,7 +304,7 @@ impl<'a> Transformer<'a> {
         for i in x.iter_mut() {
             *i *= normalizer;
         }
-
+    
         for l in 0..p.n_layers {
             rmsnorm(&mut s.xb, x, &w.w_rms_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
 
@@ -313,10 +320,19 @@ impl<'a> Transformer<'a> {
                 } else {
                     let sxq = &mut *s.xq.as_mut_ptr();
 
-                    quantize(sxq, &s.xb, dim as usize, gs);
-                    qmatmul(&mut s.q, sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                    qmatmul(&mut k, sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                    qmatmul(&mut v, sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    if p.q_type == QuantType::Q8_0 {
+                        quantize(sxq, &s.xb, dim as usize, gs);
+                        
+                        matmul_q8(&mut s.q, sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                        matmul_q8(&mut k, sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                        matmul_q8(&mut v, sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    } else if p.q_type == QuantType::Q4_0 {
+                        quantize_q4(sxq, &s.xb, dim as usize, gs);
+                        
+                        matmul_q4(&mut s.q, sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                        matmul_q4(&mut k, sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                        matmul_q4(&mut v, sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    }
                 }
             }
 
@@ -388,8 +404,13 @@ impl<'a> Transformer<'a> {
                 } else {
                     let sxq1 = &mut *s.xq1.as_mut_ptr();
                     
-                    quantize(sxq1, &s.xb3, att_dim as usize, gs);
-                    qmatmul(&mut s.xb2, sxq1, &w.wo_quant.assume_init()[l as usize], att_dim as usize, gs as usize)
+                    if p.q_type == QuantType::Q8_0 {
+                        quantize(sxq1, &s.xb3, att_dim as usize, gs);
+                        matmul_q8(&mut s.xb2, sxq1, &w.wo_quant.assume_init()[l as usize], att_dim as usize, gs as usize)
+                    } else {
+                        quantize_q4(sxq1, &s.xb3, att_dim as usize, gs);
+                        matmul_q4(&mut s.xb2, sxq1, &w.wo_quant.assume_init()[l as usize], att_dim as usize, gs as usize)
+                    }
                 }
             }
             
@@ -414,9 +435,15 @@ impl<'a> Transformer<'a> {
                 } else {
                     let sxq = &mut *s.xq.as_mut_ptr();
                     
-                    quantize(sxq, &s.xb, dim as usize, gs);
-                    qmatmul(&mut s.hb, sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                    qmatmul(&mut s.hb2, sxq, &w.w3_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    if p.q_type == QuantType::Q8_0 {
+                        quantize(sxq, &s.xb, dim as usize, gs);
+                        matmul_q8(&mut s.hb, sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                        matmul_q8(&mut s.hb2, sxq, &w.w3_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    } else if p.q_type == QuantType::Q4_0{
+                        quantize_q4(sxq, &s.xb, dim as usize, gs);
+                        matmul_q4(&mut s.hb, sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                        matmul_q4(&mut s.hb2, sxq, &w.w3_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    }
                 }
             }
             
@@ -437,8 +464,13 @@ impl<'a> Transformer<'a> {
                 } else {
                     let shq = &mut *s.hq.as_mut_ptr();
 
-                    quantize(shq, &s.hb, hidden_dim as usize, gs);
-                    qmatmul(&mut s.xb, shq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, gs as usize);
+                    if p.q_type == QuantType::Q8_0 {
+                        quantize(shq, &s.hb, hidden_dim as usize, gs);
+                        matmul_q8(&mut s.xb, shq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, gs as usize);
+                    } else if p.q_type == QuantType::Q4_0 {
+                        quantize_q4(shq, &s.hb, hidden_dim as usize, gs);
+                        matmul_q4(&mut s.xb, shq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, gs as usize);
+                    }
                 }
             }
 
@@ -459,8 +491,13 @@ impl<'a> Transformer<'a> {
             } else {
                 let sxq = &mut *s.xq.as_mut_ptr();
                 
-                quantize(sxq, &x, dim as usize, gs);
-                qmatmul(&mut s.logits, sxq, &w.w_cls_quant.assume_init()[0], dim as usize, gs as usize);
+                if p.q_type == QuantType::Q8_0 {
+                    quantize(sxq, &x, dim as usize, gs);
+                    matmul_q8(&mut s.logits, sxq, &w.w_cls_quant.assume_init()[0], dim as usize, gs as usize);
+                } else if p.q_type == QuantType::Q4_0 {
+                    quantize_q4(sxq, &x, dim as usize, gs);
+                    matmul_q4(&mut s.logits, sxq, &w.w_cls_quant.assume_init()[0], dim as usize, gs as usize);
+                }
             }
         }
 
