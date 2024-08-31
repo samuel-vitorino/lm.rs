@@ -130,7 +130,7 @@ impl<'a> Transformer<'a> {
 
         let lmrs_version = slice_to_u32(&data[4..8]);
 
-        println!("LMRS version: {}", lmrs_version);
+        println!("LMRS version: {}\n", lmrs_version);
         
         let (head, body, _) = unsafe { data[8..45].align_to::<TranformerArgs>() };
 
@@ -144,7 +144,7 @@ impl<'a> Transformer<'a> {
 
         let quantized = cfg.q_type != QuantType::None;
         
-        if cfg.q_type == QuantType::Q8_0 { println!("Using Q8_0 quantization.\n") };
+        if quantized { println!("Using {:?} quantization.", cfg.q_type) };
 
         let kv_dim = cfg.head_size * cfg.n_kv_heads;
 
