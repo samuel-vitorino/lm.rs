@@ -126,7 +126,7 @@ pub struct Transformer<'a> {
 
 impl<'a> Transformer<'a> {
     pub fn new(data: &'a Mmap) -> Transformer<'a> {
-        assert_eq!(data[0..4], [0x6c, 0x6d, 0x72, 0x73], "Model not in llm.rs format.");
+        assert_eq!(data[0..4], [0x6c, 0x6d, 0x72, 0x73], "Model not in lm.rs format.");
 
         let lmrs_version = slice_to_u32(&data[4..8]);
 

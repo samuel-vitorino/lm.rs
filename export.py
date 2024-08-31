@@ -1,4 +1,5 @@
-#Export safetensor model to llm.rs format
+# Export safetensor model to lm.rs format
+
 import torch
 import struct
 import argparse
