@@ -20,20 +20,22 @@ lmrs: run inference on Gemma 2 models locally on the CPU with Rust
 
 Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code that can perform full inference on Google's Gemma models on the CPU.
 
-Disclaimer: most of the code could be optimized and improved (2B now running at 11.56 tok/s on my 8-core laptop at Q8_0 quantization, and at 20 tok/s on a 16-core AMD EPYC. 9B running at 3 tok/s and 7 tok/s, respectively). This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
+Disclaimer: most of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
-Some things to do in the future:
+## Prepared models
 
-- [X] Add other sampling methods.
-- [X] Test the 9B and 27B models (tested the 9B, 27B would be too slow).
-- [X] Parallelize the multi head attention loop.
-- [X] Add performance metrics.
-- [ ] Ability to give a system prompt
-- [X] Quantization support (int8).
+Some benchmarks and download links for the quantized models and tokenizers. Q4_0 quantization still being improved. Speed measured on a 16-core AMD Epyc.
+
+|        Model       | Size | Speed |
+| ------------------ | ------------- | ------------- |
+| [Gemma 2 2B IT Q4_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q4_0-LMRS) | 1.39G          | 20 tok/s |
+| [Gemma 2 2B IT Q8_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q8_0-LMRS) | 2.66GB  | 18 tok/s |
+| [Gemma 2 9B IT Q4_0](https://huggingface.co/samuel-vitorino/gemma2-9b-it-q4_0-LMRS) | 4.91GB  | 7 tok/s  | 
+| [Gemma 2 9B IT Q8_0](https://huggingface.co/samuel-vitorino/gemma2-9b-it-q8_0-LMRS) | 9.53GB | 8 tok/s  |
 
 ## Instructions
 
-You can download the prepared [gemma2-2b-it-q8_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q8_0-LMRS)/[gemma2-9b-it-q8_0](https://huggingface.co/samuel-vitorino/gemma2-9b-it-q8_0-LMRS) quantized model and tokenizer model files in the lmrs format from huggingface. If you'd prefer to convert the model published by Google on [huggingface](https://huggingface.co/google/gemma-2-2b-it) yourself, please refer to the following section. Otherwise, you can skip ahead to the build section.
+You can download the prepared quantized model and tokenizer model files in the lmrs format from huggingface. If you'd prefer to convert the model published by Google on [huggingface](https://huggingface.co/google/gemma-2-2b-it) yourself, please refer to the following section. Otherwise, you can skip ahead to the build section.
 
 ### Model Conversion
 
@@ -90,6 +92,17 @@ Then run:
 ```
 
 You can change the ip and port with --ip and --port. Other flags such as temperature, etc. are also available. You can now connect via the web interface.
+
+## TODOs
+
+Some things to do in the future:
+
+- [X] Add other sampling methods.
+- [X] Test the 9B and 27B models (tested the 9B, 27B would be too slow).
+- [X] Parallelize the multi head attention loop.
+- [X] Add performance metrics.
+- [ ] Ability to give a system prompt
+- [X] Quantization support (int8, int4).
 
 ## License
 

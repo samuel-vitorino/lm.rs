@@ -18,6 +18,9 @@ futures-util = { version = "0.3.28", default-features = false, features = ["sink
 tokio = { version = "1.0.0", features = ["full"], optional = true }
 
 [[bin]]
-
 name = "backend"
 required-features = ["backend"]
+
+[profile.release]
+codegen-units = 1
+lto = true
