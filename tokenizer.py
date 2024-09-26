@@ -2,8 +2,8 @@ import argparse
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--tokenizer-model", type=str, required=True, help="optional path to custom tokenizer ")
-    parser.add_argument("-t", "--tokenizer-type", type=str, required=True, choices=['LLAMA', 'GEMMA'], help="optional path to custom tokenizer ")
+    parser.add_argument("-m", "--tokenizer-model", type=str, required=True, help="path to custom tokenizer model file ")
+    parser.add_argument("-t", "--tokenizer-type", type=str, required=True, choices=['LLAMA', 'GEMMA'], help="type of tokenizer (GEMMA/LLAMA)")
     args = parser.parse_args()
 
     if args.tokenizer_type == "GEMMA":        
