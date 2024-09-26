@@ -6,12 +6,14 @@ use tokio_tungstenite::tungstenite::Result;
 use tokio_tungstenite::tungstenite::Message;
 
 use lmrs::transformer::Transformer;
+use lmrs::transformer::ModelType;
 use lmrs::tokenizer::Tokenizer;
 use lmrs::sampler::Sampler;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::fs::File;
 use memmap2::Mmap;
+use chrono::Local;
 use std::fs;
 
 /// Simple WebSocket server
@@ -105,14 +107,26 @@ async fn main() -> Result<()> {
                 let num_prompt_tokens;
                 let mut user_idx = 0;
                 
-                let prompt_tokens: Vec<u32>;
+                let mut prompt_tokens: Vec<u32> = Vec::new();
 
                 println!("Processing prompt: {}", message_text);
                 
-                prompt_tokens = tokenizer.encode(message_text.trim(), true, false, true);
+                // System prompt
+                if model.args.model_type == ModelType::LLAMA && pos == 0 {
+                    // First part of chat template with initial tags and cut off date
+                    prompt_tokens.extend([128000, 128006, 9125, 128007, 271, 38766, 1303, 33025, 2696, 25, 6790, 220, 2366, 18, 198, 15724, 2696, 25, 220]);
+                    
+                    let today = Local::now().date_naive();
+                    let formatted_date = today.format("%d %b %Y").to_string();
+                    prompt_tokens.extend(tokenizer.encode(&formatted_date, false, false, false, model.args.model_type));
+
+                    prompt_tokens.extend([271, 128009])
+                }
+                
+                prompt_tokens.extend(tokenizer.encode(message_text.trim(), false, false, true, model.args.model_type));
                 num_prompt_tokens = prompt_tokens.len();
 
-                while next != 1 || user_idx < num_prompt_tokens {
+                while next != tokenizer.eos || user_idx < num_prompt_tokens {
                     if user_idx < num_prompt_tokens {
                         token = prompt_tokens[user_idx];
                         user_idx += 1;
@@ -120,12 +134,16 @@ async fn main() -> Result<()> {
                         token = next;
                     }
 
+                    if token == tokenizer.eos && user_idx >= num_prompt_tokens {
+                        break;
+                    }
+
                     let logits: &mut [f32] = model.forward(token, pos);
                     next = sampler.sample(logits);
                     pos += 1;
 
-                    if user_idx >= num_prompt_tokens && next != 1 && token != 107 {
-                        let piece = tokenizer.decode(token);
+                    if user_idx >= num_prompt_tokens && next != tokenizer.eos && !(model.args.model_type == ModelType::GEMMA && next == 107) {
+                        let piece = tokenizer.decode(next);
                         if write.send(piece.into()).await.is_err() {
                             break;
                         }

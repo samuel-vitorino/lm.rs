@@ -124,15 +124,16 @@ def quantize_q80(w, group_size):
     return int8val, scale, maxerr 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Export safetensors model to llm.rs format.")
+    parser = argparse.ArgumentParser(description="Export safetensors model to lm.rs format.")
     parser.add_argument('--files', type=str, nargs='+', required=True, help='a list of safetensor file paths')
     parser.add_argument('--config', type=str, required=True, help='path of the config file of the model')
     parser.add_argument('--save-path', type=str, required=True, help='path of the output model file')
     parser.add_argument('--quantize', action='store_true', default=False, help='use quantization')
     parser.add_argument('--quantize-type', type=int, default=1, help='type of quantization - 1 for Q8_0, 2 for Q4_0')
     parser.add_argument('--group-size', type=int, default=128, help='groups to use in quantization')
+    parser.add_argument('--type', type=str, required=True, choices=["LLAMA", "GEMMA"], help='groups to use in quantization')
 
-    version = 3
+    version = 4
 
     args = parser.parse_args()
 
@@ -144,6 +145,8 @@ if __name__ == "__main__":
 
     ew = []
 
+    model_type = 0 if args.type == "GEMMA" else 1
+
     with open(args.config, 'r') as file:
         cfg = json.load(file)
 
@@ -153,10 +156,14 @@ if __name__ == "__main__":
     out_file.write(struct.pack('I', 0x73726d6c))
     out_file.write(struct.pack('I', version))
 
-    header = struct.pack('IIIIIIIIB', cfg["hidden_size"], cfg["intermediate_size"], cfg["num_hidden_layers"], cfg["num_attention_heads"], cfg["head_dim"],
-                                    cfg["num_key_value_heads"], cfg["vocab_size"], cfg["max_position_embeddings"], quantize_type)
+    header = struct.pack('IIIIIIIIff', cfg["hidden_size"], cfg["intermediate_size"], cfg["num_hidden_layers"], cfg["num_attention_heads"], cfg["head_dim"],
+                                    cfg["num_key_value_heads"], cfg["vocab_size"], cfg["max_position_embeddings"], cfg["rms_norm_eps"], cfg["rope_theta"])
 
     out_file.write(header)
+
+    types = struct.pack('BB', quantize_type, model_type) 
+
+    out_file.write(types)
 
     with ExitStack() as stack:
         files = [stack.enter_context(safe_open(file_path, framework="pt", device="cpu")) for file_path in args.files]
@@ -170,7 +177,7 @@ if __name__ == "__main__":
         
         out_file.write(struct.pack('I', group_size))
 
-        pad = 48 - out_file.tell()
+        pad = 256 - out_file.tell()
         assert pad >= 0
         out_file.write(b'\0' * pad)
         
@@ -186,11 +193,16 @@ if __name__ == "__main__":
         
         # FFN weights
         write_tensors_by_group(files, "post_attention_layernorm", out_file)
-        write_tensors_by_group(files, "pre_feedforward_layernorm", out_file)
+
+        if args.type == "GEMMA":
+            write_tensors_by_group(files, "pre_feedforward_layernorm", out_file)
+
         ew.extend(write_tensors_by_group(files, "mlp.gate_proj", out_file, quantize_type=quantize_type))
         ew.extend(write_tensors_by_group(files, "mlp.down_proj", out_file, quantize_type=quantize_type))
         ew.extend(write_tensors_by_group(files, "mlp.up_proj", out_file, quantize_type=quantize_type))
-        write_tensors_by_group(files, "post_feedforward_layernorm", out_file)
+        
+        if args.type == "GEMMA":
+            write_tensors_by_group(files, "post_feedforward_layernorm", out_file)
          
         # Final norm weights
         write_tensors_by_group(files, "model.norm.weight", out_file)
@@ -199,6 +211,6 @@ if __name__ == "__main__":
         ew.sort(reverse=True)
         print(f"Max quantization group error across all weights: {ew[0]}. Mean: {sum(ew)/len(ew)}.")
 
-    print("Successfully converted gemma model to lmrs format.")
+    print(f"Successfully converted {args.type} model to lmrs format.")
 
     out_file.close()

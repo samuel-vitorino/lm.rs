@@ -48,9 +48,15 @@ fn init_param_quant<'a>(data: &'a [u8], offset: &mut usize, n: u32, size_each: u
     return Box::leak(res.into_boxed_slice());
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ModelType {
+    GEMMA,
+    LLAMA,
+}
+
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-pub struct TranformerArgs {
+pub struct TransformerArgs {
     dim: u32,
     hidden_dim: u32,
     n_layers: u32,
@@ -59,7 +65,10 @@ pub struct TranformerArgs {
     n_kv_heads: u32,
     pub vocab_size: u32,
     seq_len: u32,
+    rms_norm_eps: f32,
+    rope_theta: f32,
     q_type: QuantType,
+    pub model_type: ModelType,
     group_size: u32,
 }
 
@@ -90,8 +99,9 @@ pub struct TransformerWeights<'a> {
     w3_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
 
     w_rms_post_att: &'a [f32],
-    w_rms_pre_ffn: &'a [f32],
-    w_rms_post_ffn: &'a [f32],
+
+    w_rms_pre_ffn: MaybeUninit<&'a [f32]>,
+    w_rms_post_ffn: MaybeUninit<&'a [f32]>,
 
     w_rms_final: &'a [f32],
 
@@ -119,7 +129,7 @@ pub struct TransformerState<'a>
 }
 
 pub struct Transformer<'a> {
-    pub args: TranformerArgs,
+    pub args: TransformerArgs,
     weights: TransformerWeights<'a>,
     state: TransformerState<'a>,
 }
@@ -130,17 +140,19 @@ impl<'a> Transformer<'a> {
 
         let lmrs_version = slice_to_u32(&data[4..8]);
 
-        println!("LMRS version: {}\n", lmrs_version);
+        println!("LMRS version: {}", lmrs_version);
         
-        let (head, body, _) = unsafe { data[8..45].align_to::<TranformerArgs>() };
+        let (head, body, _) = unsafe { data[8..54].align_to::<TransformerArgs>() };
 
         assert!(head.is_empty(), "Data was not aligned");
         
         let cfg = &body[0];
+        
+        println!("Model type: {:?}\n", cfg.model_type);
 
         let head_size = cfg.head_size;
         
-        let mut offset: usize = 48;
+        let mut offset: usize = 256;
 
         let quantized = cfg.q_type != QuantType::None;
         
@@ -148,7 +160,11 @@ impl<'a> Transformer<'a> {
 
         let kv_dim = cfg.head_size * cfg.n_kv_heads;
 
+        let mut rms_pre_ffn = MaybeUninit::uninit();
+        let mut rms_post_ffn = MaybeUninit::uninit();
+
         if !quantized {
+            
             let emb_tab = init_param(&data, &mut offset, 1, cfg.vocab_size * cfg.dim);
             let rms_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
             let wq = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size);
@@ -156,11 +172,19 @@ impl<'a> Transformer<'a> {
             let wv = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size);
             let wo = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size);
             let rms_post_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
-            let rms_pre_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+
+            if cfg.model_type == ModelType::GEMMA {
+                rms_pre_ffn = MaybeUninit::new(init_param(&data, &mut offset, cfg.n_layers, cfg.dim));
+            }
+
             let w1 = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim);
             let w2 = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim);
             let w3 = init_param(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim);
-            let rms_post_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+            
+            if cfg.model_type == ModelType::GEMMA {
+                rms_post_ffn = MaybeUninit::new(init_param(&data, &mut offset, cfg.n_layers, cfg.dim));
+            }
+
             let rms_final = init_param(&data, &mut offset, 1, cfg.dim);
             
             let weights = TransformerWeights {
@@ -225,11 +249,19 @@ impl<'a> Transformer<'a> {
         let wv_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_kv_heads * head_size, cfg.group_size, cfg.q_type);
         let wo_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
         let rms_post_att = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
-        let rms_pre_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+
+        if cfg.model_type == ModelType::GEMMA {
+            rms_pre_ffn = MaybeUninit::new(init_param(&data, &mut offset, cfg.n_layers, cfg.dim));
+        }
+
         let w1_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
         let w2_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
         let w3_quant = init_param_quant(&data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
-        let rms_post_ffn = init_param(&data, &mut offset, cfg.n_layers, cfg.dim);
+
+        if cfg.model_type == ModelType::GEMMA {
+            rms_post_ffn = MaybeUninit::new(init_param(&data, &mut offset, cfg.n_layers, cfg.dim));
+        }
+
         let rms_final = init_param(&data, &mut offset, 1, cfg.dim); 
         
         let weights = TransformerWeights {
@@ -300,14 +332,16 @@ impl<'a> Transformer<'a> {
         x.copy_from_slice(&w.token_embedding_table[(token * dim) as usize..(token * dim + dim) as usize]);
 
         // Gemma normalizes the token embeddings by sqrt(dim)
-        let normalizer = (dim as f32).sqrt();
-        for i in x.iter_mut() {
-            *i *= normalizer;
+        if p.model_type == ModelType::GEMMA {
+            let normalizer = (dim as f32).sqrt();
+            for i in x.iter_mut() {
+                *i *= normalizer;
+            }
         }
-    
-        for l in 0..p.n_layers {
-            rmsnorm(&mut s.xb, x, &w.w_rms_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
 
+        for l in 0..p.n_layers {
+            rmsnorm(&mut s.xb, x, &w.w_rms_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
+            
             let loff = l * p.seq_len * kv_dim; 
             let mut k = &mut s.key_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
             let mut v = &mut s.value_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
@@ -335,12 +369,33 @@ impl<'a> Transformer<'a> {
                     }
                 }
             }
-
-            // In gemma they chunk and stack the input matrix to use as complex numbers so actually for calculation, vec[i+1] is vec[i+head_size/2]
+            
             for i in 0..p.n_heads {
                 for j in 0..(head_size/2) {
                     let head_dim: u32 = j * 2;
-                    let freq: f32 = 1.0 / 10000.0f32.powf(head_dim as f32/head_size as f32);
+                    let mut freq: f32 = 1.0 / p.rope_theta.powf(head_dim as f32/head_size as f32);
+
+                    if p.model_type == ModelType::LLAMA {
+                        let wavelen = (2.0 * std::f32::consts::PI) / freq;
+                        
+                        // Should be on args
+                        let factor = 32.0;
+                        let low_freq_factor = 1.0;
+                        let high_freq_factor = 4.0;
+                        let old_context_len = 8192.0;
+
+                        let low_freq_wavelen = old_context_len / low_freq_factor;
+                        let high_freq_wavelen = old_context_len / high_freq_factor;
+
+                        if wavelen > low_freq_wavelen {
+                            freq /= factor;
+                        } else if wavelen <= low_freq_wavelen && wavelen >= high_freq_wavelen {
+                            let smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor);
+                            
+                            freq = (1.0 - smooth_factor) * freq / factor + smooth_factor * freq
+                        }
+                    }
+
                     let val: f32 = pos as f32 * freq;
                     let fcr = val.cos();
                     let fci = val.sin();
@@ -356,7 +411,7 @@ impl<'a> Transformer<'a> {
                     }
                 }
             }
-
+            
             s.xb3.par_chunks_mut(head_size as usize).enumerate().for_each( |(h, xb)| {
                 let q = &s.q[(h as u32 * head_size) as usize..(h as u32 * head_size + head_size) as usize];
 
@@ -371,15 +426,17 @@ impl<'a> Transformer<'a> {
                         score += q[i as usize] * k[i as usize];
                     }
                     
-                    score /= (256.0f32).sqrt();
-
-                    // Softcapping
-                    score /= 50.0f32;
-                    score = (score as f64).tanh() as f32;
-                    score *= 50.0f32;
+                    score /= (head_size as f32).sqrt();
                     
-                    // Local attention
-                    score += if pos - t <= 4096 {0.0} else {-2.3819763e38};
+                    if p.model_type == ModelType::GEMMA {
+                        // Softcapping
+                        score /= 50.0f32;
+                        score = (score as f64).tanh() as f32;
+                        score *= 50.0f32;
+                        
+                        // Local attention
+                        score += if pos - t <= 4096 {0.0} else {-2.3819763e38};
+                    }
  
                     att[t as usize] = score;
                 }
@@ -414,14 +471,24 @@ impl<'a> Transformer<'a> {
                 }
             }
             
-            rmsnorm(&mut s.xb, &s.xb2, &w.w_rms_post_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
-        
-            for i in 0..dim {
-                x[i as usize] += s.xb[i as usize];
-            }
+            if p.model_type == ModelType::GEMMA {
+                rmsnorm(&mut s.xb, &s.xb2, &w.w_rms_post_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
             
-            rmsnorm(&mut s.xb, &x, &w.w_rms_pre_ffn[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
-
+                for i in 0..dim {
+                    x[i as usize] += s.xb[i as usize];
+                }
+                
+                unsafe {
+                    rmsnorm(&mut s.xb, &x, &w.w_rms_pre_ffn.assume_init()[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, true);
+                }
+            } else {
+                for i in 0..dim {
+                    x[i as usize] += s.xb2[i as usize];
+                }
+                
+                rmsnorm(&mut s.xb, &x, &w.w_rms_post_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
+            }
+             
             // GeGLU is w2(GELU(w1(x)) * w3(x)) 
             // w1 -> gate_proj weights
             // w2 -> down_proj weights
@@ -449,9 +516,15 @@ impl<'a> Transformer<'a> {
             
             for i in 0..hidden_dim {
                 let mut val = s.hb[i as usize];
-                
-                val *= 0.5 * (1.0 + ((0.7978845608028654 * (val + 0.044715 * val * val * val) as f64).tanh()) as f32);
-                
+
+                // Best case we would have the activation in the args, but for now this will do 
+                if p.model_type == ModelType::GEMMA {
+                    // GELU
+                    val *= 0.5 * (1.0 + ((0.7978845608028654 * (val + 0.044715 * val * val * val) as f64).tanh()) as f32);   
+                } else {
+                    // SiLU
+                    val *= 1.0 / (1.0 + (-val).exp());
+                }
 
                 val *= s.hb2[i as usize];
                 
@@ -474,16 +547,24 @@ impl<'a> Transformer<'a> {
                 }
             }
 
-            rmsnorm(&mut s.xb2, &s.xb, &w.w_rms_post_ffn[(l*dim) as usize..(l*dim + dim) as usize], dim as usize);
-            
-            for i in 0..dim {
-                x[i as usize] += s.xb2[i as usize];
-            }    
+            if p.model_type == ModelType::GEMMA {
+                unsafe {
+                    rmsnorm(&mut s.xb2, &s.xb, &w.w_rms_post_ffn.assume_init()[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, true);
+                }
+                
+                for i in 0..dim {
+                    x[i as usize] += s.xb2[i as usize];
+                }
+            } else {
+                for i in 0..dim {
+                    x[i as usize] += s.xb[i as usize];
+                }
+            }
         }
 
         s.xb.copy_from_slice(x);
 
-        rmsnorm(x, &s.xb, &w.w_rms_final, dim as usize);
+        rmsnorm(x, &s.xb, &w.w_rms_final, dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
         
         unsafe {
             if !quantized {
@@ -501,10 +582,12 @@ impl<'a> Transformer<'a> {
             }
         }
 
-        for d in 0..dim {
-            s.logits[d as usize] /= 30.0;
-            s.logits[d as usize] = (s.logits[d as usize] as f64).tanh() as f32;
-            s.logits[d as usize] *= 30.0;
+        if p.model_type == ModelType::GEMMA {
+            for d in 0..dim {
+                s.logits[d as usize] /= 30.0;
+                s.logits[d as usize] = (s.logits[d as usize] as f64).tanh() as f32;
+                s.logits[d as usize] *= 30.0;
+            }
         }
         
         return &mut s.logits;

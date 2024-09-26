@@ -1,5 +1,6 @@
 use crate::functional::slice_to_u32;
 use crate::functional::slice_to_f32;
+use crate::transformer::ModelType;
 use std::fs;
 
 #[derive(Debug, Clone)]
@@ -11,6 +12,8 @@ struct TokenIndex {
 pub struct Tokenizer {
     vocab_size: u32,
     vocab: Vec<String>,
+    pub bos: u32,
+    pub eos: u32,
     vocab_scores: Vec<f32>,
     sorted_vocab: Vec<TokenIndex>,
     //For now i don't use this, only allow seqs of max this size, future work
@@ -19,15 +22,17 @@ pub struct Tokenizer {
 
 impl Tokenizer {
     pub fn new(path: &str) -> Tokenizer {
-        let data: Vec<u8> = fs::read(path).expect("REASON");
+        let data: Vec<u8> = fs::read(path).expect("Error reading tokenizer file.");
 
         let vocab_size = slice_to_u32(&data[0..4]);
         //let max_token_len = slice_to_u32(&data[4..8]);
+        let bos = slice_to_u32(&data[8..12]);
+        let eos = slice_to_u32(&data[12..16]);
         let mut vocab: Vec<String> = vec![];
         let mut vocab_scores: Vec<f32> = vec![];
         let sorted_vocab: Vec<TokenIndex> = vec![];
 
-        let mut offset: usize = 8;
+        let mut offset: usize = 16;
 
         for _ in 0..vocab_size {
             let score = slice_to_f32(&data[offset..offset + 4]);
@@ -51,12 +56,14 @@ impl Tokenizer {
             vocab_size,
             //max_token_len,
             vocab,
+            bos,
+            eos,
             vocab_scores,
             sorted_vocab,
         }
     }
 
-    pub fn encode(&mut self, text: &str, bos: bool, eos: bool, chat_format: bool) -> Vec<u32> {
+    pub fn encode(&mut self, text: &str, bos: bool, eos: bool, chat_format: bool, model_type: ModelType) -> Vec<u32> {
         assert!(!text.is_empty(), "Text to encode should not be empty");
 
         if self.sorted_vocab.is_empty() {
@@ -75,11 +82,15 @@ impl Tokenizer {
         let mut tokens: Vec<u32> = Vec::new();
 
         if bos {
-            tokens.push(2)
+            tokens.push(self.bos)
         }
 
         if chat_format {
-            tokens.extend(&[106, 1645, 108]);
+            if model_type == ModelType::GEMMA {
+                tokens.extend([self.bos, 106, 1645, 108]);
+            } else if model_type == ModelType::LLAMA {
+                tokens.extend([128006, 882, 128007, 271]);
+            }
         }
 
         for c in text.chars() {
@@ -123,11 +134,15 @@ impl Tokenizer {
         }
         
         if chat_format {
-            tokens.extend(&[107, 108, 106, 2516, 108]);
+            if model_type == ModelType::GEMMA {
+                tokens.extend([107, 108, 106, 2516, 108]);
+            } else if model_type == ModelType::LLAMA {
+                tokens.extend([128009, 128006, 78191, 128007, 271]);
+            }
         }
 
         if eos {
-            tokens.push(1)
+            tokens.push(self.eos)
         }
 
         return tokens;

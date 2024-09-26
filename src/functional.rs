@@ -44,7 +44,7 @@ pub fn random_f32(state: u64) -> f32 {
 
 // Functions used in NNs
 
-pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize) {
+pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize, eps: f32, add_unit_offset: bool) {
     let n_simd = size/8;
 
     let mut ss_sim = f32x8::ZERO;
@@ -57,14 +57,20 @@ pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize) {
     let mut ss = ss_sim.reduce_add();
 
     ss /= size as f32;
-    ss += 1e-6;
+    ss += eps;
     ss = 1.0 / ss.sqrt();
 
     for j in 0..n_simd {
         let x_vec = f32x8::from(&x[j*8..j*8+8]);
         let w_vec = f32x8::from(&weight[j*8..j*8+8]);
 
-        let r = ((1.0 + w_vec) * (ss * x_vec)).to_array();
+        let r;
+        
+        if add_unit_offset {
+            r = ((1.0 + w_vec) * (ss * x_vec)).to_array();
+        } else {
+            r = (w_vec * (ss * x_vec)).to_array();
+        }
 
         for k in 0..8 {
             o[(j*8) + k] = r[k];
