@@ -53,18 +53,17 @@ fn main() {
 
     let mut model = Transformer::new(&data);
 
-    let seed: u64;
-
-    match args.seed {
+    let seed: u64 = match args.seed {
         Some(seed_value) => {
-            seed = seed_value;
+            seed_value
         }
         None => {
             let start = SystemTime::now();
             let since_epoch = start.duration_since(UNIX_EPOCH).expect("Error getting time since epoch");
-            seed = since_epoch.as_millis() as u64;
+            
+            since_epoch.as_millis() as u64
         }
-    }
+    };
 
     let mut sampler = Sampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
 
@@ -108,8 +107,7 @@ fn main() {
             user_turn = false; 
             user_idx = 0;
             
-            print!("Assistant: \n");
-            io::stdout().flush().unwrap();
+            println!("Assistant:");
         }
 
         if user_idx < num_prompt_tokens {
@@ -121,7 +119,7 @@ fn main() {
         
         if token == tokenizer.eos && user_idx >= num_prompt_tokens { 
             user_turn = true; 
-            println!("");
+            println!();
             prompt_tokens = Vec::new();
             
             if args.show_metrics {
@@ -150,6 +148,6 @@ fn main() {
 
         let duration = processing_start.elapsed();
         total_duration += duration.as_millis() as f32;
-        total_tokens += 1 as f32;
+        total_tokens += 1.0;
     }
 }

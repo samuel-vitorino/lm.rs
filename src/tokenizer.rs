@@ -112,16 +112,14 @@ impl Tokenizer {
 
             for idx in 0..tokens.len() - 1 {
                 let new_t = self.vocab[tokens[idx] as usize].clone() + &self.vocab[tokens[idx + 1] as usize];
-                match self.sorted_vocab.binary_search_by(|token| token.text.cmp(&new_t)) {
-                    Ok(index) => {
-                        let temp_t = &self.sorted_vocab[index];
-                        if self.vocab_scores[temp_t.id as usize] > best_score {
-                            best_score = self.vocab_scores[temp_t.id as usize];
-                            best_id = temp_t.id;
-                            best_idx = idx as i32;
-                        }
-                    },
-                    Err(_) => {}
+                
+                if let Ok(index) = self.sorted_vocab.binary_search_by(|token| token.text.cmp(&new_t)) {
+                    let temp_t = &self.sorted_vocab[index];
+                    if self.vocab_scores[temp_t.id as usize] > best_score {
+                        best_score = self.vocab_scores[temp_t.id as usize];
+                        best_id = temp_t.id;
+                        best_idx = idx as i32;
+                    }
                 }
             }
 
@@ -145,7 +143,7 @@ impl Tokenizer {
             tokens.push(self.eos)
         }
 
-        return tokens;
+        tokens
     }
 
     pub fn decode(&self, token: u32) -> String {

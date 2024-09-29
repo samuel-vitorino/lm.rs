@@ -35,16 +35,17 @@ pub fn random_u32(mut state: u64) -> u32 {
     state ^= state >> 12;
     state ^= state << 25;
     state ^= state >> 27;
-    return ((state * 0x2545F4914F6CDD1Du64) >> 32) as u32;
+
+    ((state * 0x2545F4914F6CDD1Du64) >> 32) as u32
 }
 
 pub fn random_f32(state: u64) -> f32 { 
-    return (random_u32(state) >> 8) as f32 / 16777216.0f32;
+    (random_u32(state) >> 8) as f32 / 16777216.0f32
 }
 
 // Functions used in NNs
 
-pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize, eps: f32, add_unit_offset: bool) {
+pub fn rmsnorm(o: &mut [f32], x: &[f32], weight: &[f32], size: usize, eps: f32, add_unit_offset: bool) {
     let n_simd = size/8;
 
     let mut ss_sim = f32x8::ZERO;
@@ -63,14 +64,12 @@ pub fn rmsnorm(o: &mut Vec<f32>, x: &Vec<f32>, weight: &[f32], size: usize, eps:
     for j in 0..n_simd {
         let x_vec = f32x8::from(&x[j*8..j*8+8]);
         let w_vec = f32x8::from(&weight[j*8..j*8+8]);
-
-        let r;
         
-        if add_unit_offset {
-            r = ((1.0 + w_vec) * (ss * x_vec)).to_array();
+        let r = if add_unit_offset {
+            ((1.0 + w_vec) * (ss * x_vec)).to_array()
         } else {
-            r = (w_vec * (ss * x_vec)).to_array();
-        }
+            (w_vec * (ss * x_vec)).to_array()
+        };
 
         for k in 0..8 {
             o[(j*8) + k] = r[k];
@@ -122,7 +121,7 @@ pub fn matmul_q8(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
     xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
         let ni: usize = i * n;
 
-        *xout_elem = (0..=(n - gs)).step_by(gs as usize).map(|j| {
+        *xout_elem = (0..=(n - gs)).step_by(gs).map(|j| {
             let mut ival = i32x8::ZERO;
 
             for k in 0..n_simd {
@@ -147,7 +146,7 @@ pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
     xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
         let ni: usize = i * n / 2;
 
-        *xout_elem = (0..=(n/2 - group_size)).step_by(group_size as usize).map(|j| {
+        *xout_elem = (0..=(n/2 - group_size)).step_by(group_size).map(|j| {
             let mut ival = i32x8::ZERO;
 
             for k in 0..n_simd {

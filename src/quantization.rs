@@ -25,8 +25,8 @@ fn unpack(value: i8) -> (i8, i8) {
 pub fn dequantize(qx: &QuantizedTensor, x: &mut [f32], n: usize, gs: u32, q_type: QuantType) {
     match q_type {
         QuantType::Q8_0 => { 
-            for i in 0..n {
-                x[i] = qx.q[i] as f32 * qx.s[(i as u32 / gs) as usize];
+            for (i, value) in x.iter_mut().enumerate().take(n) {
+                *value = qx.q[i] as f32 * qx.s[(i as u32 / gs) as usize];
             }
         },
         QuantType::Q4_0 => { 
@@ -37,7 +37,7 @@ pub fn dequantize(qx: &QuantizedTensor, x: &mut [f32], n: usize, gs: u32, q_type
                 x[i*2+1] = b as f32 * scale;
             }
         },
-        _ => return,
+        _ => (),
     }  
 }
 

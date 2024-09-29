@@ -30,28 +30,28 @@ impl Sampler {
         let mut max_i: u32 = 0;
         let mut max_p = probabilities[0];
 
-        for i in 1..probabilities.len() {
-            if probabilities[i] > max_p {
+        for (i, p) in probabilities.iter().enumerate().skip(1) {
+            if *p > max_p {
                 max_i = i as u32;
-                max_p = probabilities[i];
+                max_p = *p;
             }
         }
 
-        return max_i;
+        max_i
     }
 
     fn sample_mult(probabilities: &[f32], rand: f32) -> u32 {
         let mut cdf: f32 = 0.0;
         let n = probabilities.len();
 
-        for i in 0..n {
-            cdf += probabilities[i];
+        for (i, p) in probabilities.iter().enumerate() {
+            cdf += *p;
             if rand < cdf {
                 return i as u32;
             }
         }
 
-        return (n - 1) as u32;
+        (n - 1) as u32
     }
 
     fn compare(a: &ProbIndex, b: &ProbIndex) -> std::cmp::Ordering {
@@ -70,10 +70,10 @@ impl Sampler {
 
         let  cutoff: f32 = (1.0f32 - top_p) / (n - 1) as f32;
 
-        for i in 0..n {
-            if probabilities[i] >= cutoff {
+        for (i, p) in probabilities.iter().enumerate() {
+            if *p >= cutoff {
                 self.probindex[n0].index = i as u32;
-                self.probindex[n0].prob = probabilities[i];
+                self.probindex[n0].prob = *p;
                 n0 += 1;
             }
         }
@@ -102,7 +102,7 @@ impl Sampler {
             }
         }
 
-        return self.probindex[last_idx].index; 
+        self.probindex[last_idx].index
     }
 
 
@@ -125,6 +125,6 @@ impl Sampler {
             }
         }
 
-        return next;
+        next
     }
 }
