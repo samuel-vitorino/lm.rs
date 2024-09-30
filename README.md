@@ -18,7 +18,7 @@ lm.rs: run inference on Language Models locally on the CPU with Rust
 
 **Now supporting LLama3.2 1B and 3B models! [WebUI](https://github.com/samuel-vitorino/lm.rs-webui) also now available.**
 
-Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models.
+Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU without ML libraries. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models.
 
 Disclaimer: some of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
