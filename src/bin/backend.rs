@@ -1,20 +1,20 @@
 use clap::Parser;
+use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::accept_async;
-use futures_util::{StreamExt, SinkExt};
-use tokio_tungstenite::tungstenite::Result;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::Result;
 
-use lmrs::transformer::Transformer;
-use lmrs::transformer::ModelType;
-use lmrs::tokenizer::Tokenizer;
 use lmrs::sampler::Sampler;
+use lmrs::tokenizer::Tokenizer;
+use lmrs::transformer::ModelType;
+use lmrs::transformer::Transformer;
 
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::fs::File;
-use memmap2::Mmap;
 use chrono::Local;
+use memmap2::Mmap;
 use std::fs;
+use std::fs::File;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Simple WebSocket server
 #[derive(Parser)]
@@ -49,15 +49,23 @@ async fn main() -> Result<()> {
     while let Ok((stream, _)) = listener.accept().await {
         tokio::spawn(async move {
             let args = Args::parse();
-            
+
             let model_path: &str = args.model.as_str();
             let tokenizer_path: &str = args.tokenizer.as_str();
-            
-            assert!(fs::metadata(tokenizer_path).is_ok(), "Tokenizer file not found: {}", tokenizer_path);
-            assert!(fs::metadata(model_path).is_ok(), "Model file not found: {}", model_path);
-            
+
+            assert!(
+                fs::metadata(tokenizer_path).is_ok(),
+                "Tokenizer file not found: {}",
+                tokenizer_path
+            );
+            assert!(
+                fs::metadata(model_path).is_ok(),
+                "Model file not found: {}",
+                model_path
+            );
+
             let file = File::open(&model_path).expect("Error opening model file");
-            let data = unsafe { Mmap::map(&file).expect("MMap failed")  };
+            let data = unsafe { Mmap::map(&file).expect("MMap failed") };
 
             let ws_stream = accept_async(stream).await.expect("Failed to accept");
             let (mut write, mut read) = ws_stream.split();
@@ -74,14 +82,17 @@ async fn main() -> Result<()> {
                 }
                 None => {
                     let start = SystemTime::now();
-                    let since_epoch = start.duration_since(UNIX_EPOCH).expect("Error getting time since epoch");
+                    let since_epoch = start
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Error getting time since epoch");
                     seed = since_epoch.as_millis() as u64;
                 }
             }
 
-            let mut sampler = Sampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
+            let mut sampler =
+                Sampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
             let mut pos = 0;
-            
+
             while let Some(msg) = read.next().await {
                 let message_text: String;
 
@@ -101,29 +112,44 @@ async fn main() -> Result<()> {
                         continue;
                     }
                 }
-                
+
                 let mut token: u32;
                 let mut next: u32 = 0;
                 let num_prompt_tokens;
                 let mut user_idx = 0;
-                
+
                 let mut prompt_tokens: Vec<u32> = Vec::new();
 
                 println!("Processing prompt: {}", message_text);
-                
+
                 // System prompt
                 if model.args.model_type == ModelType::LLAMA && pos == 0 {
                     // First part of chat template with initial tags and cut off date
-                    prompt_tokens.extend([128000, 128006, 9125, 128007, 271, 38766, 1303, 33025, 2696, 25, 6790, 220, 2366, 18, 198, 15724, 2696, 25, 220]);
-                    
+                    prompt_tokens.extend([
+                        128000, 128006, 9125, 128007, 271, 38766, 1303, 33025, 2696, 25, 6790, 220,
+                        2366, 18, 198, 15724, 2696, 25, 220,
+                    ]);
+
                     let today = Local::now().date_naive();
                     let formatted_date = today.format("%d %b %Y").to_string();
-                    prompt_tokens.extend(tokenizer.encode(&formatted_date, false, false, false, model.args.model_type));
+                    prompt_tokens.extend(tokenizer.encode(
+                        &formatted_date,
+                        false,
+                        false,
+                        false,
+                        model.args.model_type,
+                    ));
 
                     prompt_tokens.extend([271, 128009])
                 }
-                
-                prompt_tokens.extend(tokenizer.encode(message_text.trim(), false, false, true, model.args.model_type));
+
+                prompt_tokens.extend(tokenizer.encode(
+                    message_text.trim(),
+                    false,
+                    false,
+                    true,
+                    model.args.model_type,
+                ));
                 num_prompt_tokens = prompt_tokens.len();
 
                 while next != tokenizer.eos || user_idx < num_prompt_tokens {
@@ -142,22 +168,25 @@ async fn main() -> Result<()> {
                     next = sampler.sample(logits);
                     pos += 1;
 
-                    if user_idx >= num_prompt_tokens && next != tokenizer.eos && !(model.args.model_type == ModelType::GEMMA && next == 107) {
+                    if user_idx >= num_prompt_tokens
+                        && next != tokenizer.eos
+                        && !(model.args.model_type == ModelType::GEMMA && next == 107)
+                    {
                         let piece = tokenizer.decode(next);
                         if write.send(piece.into()).await.is_err() {
                             break;
                         }
-                    }   
-                } 
-                
+                    }
+                }
+
                 if write.send("<eos>".into()).await.is_err() {
                     break;
                 }
-                
+
                 println!("Done!\n");
             }
         });
     }
-    
+
     Ok(())
 }

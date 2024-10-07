@@ -1,5 +1,5 @@
-use crate::functional::softmax;
 use crate::functional::random_f32;
+use crate::functional::softmax;
 
 #[derive(Debug, Copy, Clone)]
 struct ProbIndex {
@@ -19,13 +19,19 @@ impl Sampler {
     pub fn new(vocab_size: u32, temperature: f32, top_p: f32, seed: u64) -> Sampler {
         Sampler {
             vocab_size,
-            probindex: vec![ProbIndex { prob: 0.0, index: 0 }; vocab_size as usize],
+            probindex: vec![
+                ProbIndex {
+                    prob: 0.0,
+                    index: 0
+                };
+                vocab_size as usize
+            ],
             temperature,
             top_p,
-            seed
+            seed,
         }
     }
-    
+
     fn sample_argmax(probabilities: &[f32]) -> u32 {
         let mut max_i: u32 = 0;
         let mut max_p = probabilities[0];
@@ -68,7 +74,7 @@ impl Sampler {
         let n = probabilities.len();
         let mut n0 = 0;
 
-        let  cutoff: f32 = (1.0f32 - top_p) / (n - 1) as f32;
+        let cutoff: f32 = (1.0f32 - top_p) / (n - 1) as f32;
 
         for (i, p) in probabilities.iter().enumerate() {
             if *p >= cutoff {
@@ -77,7 +83,7 @@ impl Sampler {
                 n0 += 1;
             }
         }
-        
+
         self.probindex.sort_by(Sampler::compare);
 
         let mut cumulative_prob: f32 = 0.0;
@@ -95,7 +101,7 @@ impl Sampler {
         let r = rand * cumulative_prob;
         let mut cdf: f32 = 0.0;
 
-        for i in 0..last_idx+1 {
+        for i in 0..last_idx + 1 {
             cdf += self.probindex[i].prob;
             if r < cdf {
                 return self.probindex[i].index;
@@ -105,14 +111,15 @@ impl Sampler {
         self.probindex[last_idx].index
     }
 
-
     pub fn sample(&mut self, logits: &mut [f32]) -> u32 {
         let next: u32;
-        
+
         if self.temperature == 0.0f32 {
             next = Sampler::sample_argmax(logits);
         } else {
-            for q in 0..self.vocab_size { logits[q as usize] /= self.temperature; }
+            for q in 0..self.vocab_size {
+                logits[q as usize] /= self.temperature;
+            }
 
             softmax(logits);
 

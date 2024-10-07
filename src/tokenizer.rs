@@ -1,5 +1,5 @@
-use crate::functional::slice_to_u32;
 use crate::functional::slice_to_f32;
+use crate::functional::slice_to_u32;
 use crate::transformer::ModelType;
 use std::fs;
 
@@ -17,7 +17,7 @@ pub struct Tokenizer {
     vocab_scores: Vec<f32>,
     sorted_vocab: Vec<TokenIndex>,
     //For now i don't use this, only allow seqs of max this size, future work
-    //max_token_len: u32, 
+    //max_token_len: u32,
 }
 
 impl Tokenizer {
@@ -45,7 +45,8 @@ impl Tokenizer {
 
             offset += 4;
 
-            let token_str = String::from_utf8(data[offset..offset + str_len as usize].to_vec()).expect("Error reading token string");
+            let token_str = String::from_utf8(data[offset..offset + str_len as usize].to_vec())
+                .expect("Error reading token string");
 
             vocab.push(token_str);
 
@@ -63,7 +64,14 @@ impl Tokenizer {
         }
     }
 
-    pub fn encode(&mut self, text: &str, bos: bool, eos: bool, chat_format: bool, model_type: ModelType) -> Vec<u32> {
+    pub fn encode(
+        &mut self,
+        text: &str,
+        bos: bool,
+        eos: bool,
+        chat_format: bool,
+        model_type: ModelType,
+    ) -> Vec<u32> {
         assert!(!text.is_empty(), "Text to encode should not be empty");
 
         if self.sorted_vocab.is_empty() {
@@ -73,7 +81,7 @@ impl Tokenizer {
                     TokenIndex {
                         text: self.vocab[i].clone(),
                         id: i as u32,
-                    }
+                    },
                 )
             }
             self.sorted_vocab.sort_by(|a, b| a.text.cmp(&b.text));
@@ -95,13 +103,16 @@ impl Tokenizer {
 
         for c in text.chars() {
             let c_str = c.to_string();
-            match self.sorted_vocab.binary_search_by(|token| token.text.cmp(&c_str)) {
+            match self
+                .sorted_vocab
+                .binary_search_by(|token| token.text.cmp(&c_str))
+            {
                 Ok(index) => tokens.push(self.sorted_vocab[index].id),
                 Err(_) => {
                     for b in c_str.into_bytes().iter() {
                         tokens.push(*b as u32 + 3)
                     }
-                },
+                }
             }
         }
 
@@ -111,9 +122,13 @@ impl Tokenizer {
             let mut best_idx: i32 = -1;
 
             for idx in 0..tokens.len() - 1 {
-                let new_t = self.vocab[tokens[idx] as usize].clone() + &self.vocab[tokens[idx + 1] as usize];
-                
-                if let Ok(index) = self.sorted_vocab.binary_search_by(|token| token.text.cmp(&new_t)) {
+                let new_t = self.vocab[tokens[idx] as usize].clone()
+                    + &self.vocab[tokens[idx + 1] as usize];
+
+                if let Ok(index) = self
+                    .sorted_vocab
+                    .binary_search_by(|token| token.text.cmp(&new_t))
+                {
                     let temp_t = &self.sorted_vocab[index];
                     if self.vocab_scores[temp_t.id as usize] > best_score {
                         best_score = self.vocab_scores[temp_t.id as usize];
@@ -128,9 +143,9 @@ impl Tokenizer {
             }
 
             tokens[best_idx as usize] = best_id;
-            tokens.remove((best_idx+1) as usize);
+            tokens.remove((best_idx + 1) as usize);
         }
-        
+
         if chat_format {
             if model_type == ModelType::GEMMA {
                 tokens.extend([107, 108, 106, 2516, 108]);
@@ -148,7 +163,7 @@ impl Tokenizer {
 
     pub fn decode(&self, token: u32) -> String {
         let piece = self.vocab[token as usize].to_string();
-        
+
         if piece.starts_with("<0x") && piece.ends_with('>') && piece.len() == 6 {
             if let Ok(byte_val) = u8::from_str_radix(&piece[3..5], 16) {
                 return char::from(byte_val).to_string();
