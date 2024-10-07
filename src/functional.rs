@@ -36,7 +36,7 @@ pub fn random_u32(mut state: u64) -> u32 {
     state ^= state << 25;
     state ^= state >> 27;
 
-    ((state * 0x2545F4914F6CDD1Du64) >> 32) as u32
+    ((state.wrapping_mul(0x2545F4914F6CDD1Du64)) >> 32) as u32
 }
 
 pub fn random_f32(state: u64) -> f32 { 
