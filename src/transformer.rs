@@ -12,7 +12,7 @@ use crate::quantization::*;
 use memmap2::Mmap;
 use rayon::prelude::*;
 use std::alloc::{dealloc, Layout};
-use std::mem::{size_of, MaybeUninit};
+use std::mem::size_of;
 
 fn init_param<'a>(data: &'a [u8], offset: &mut usize, n: u32, size_each: u32) -> &'a [f32] {
     let ptr: &[f32] =
@@ -87,36 +87,36 @@ pub struct TransformerWeights<'a> {
     token_embedding_table: &'a [f32],
 
     // Attention
-    wq: MaybeUninit<&'a [f32]>,
-    wk: MaybeUninit<&'a [f32]>,
-    wv: MaybeUninit<&'a [f32]>,
-    wo: MaybeUninit<&'a [f32]>,
+    wq: Option<&'a [f32]>,
+    wk: Option<&'a [f32]>,
+    wv: Option<&'a [f32]>,
+    wo: Option<&'a [f32]>,
 
-    wq_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    wk_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    wv_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    wo_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+    wq_quant: Option<&'a [QuantizedTensor<'a>]>,
+    wk_quant: Option<&'a [QuantizedTensor<'a>]>,
+    wv_quant: Option<&'a [QuantizedTensor<'a>]>,
+    wo_quant: Option<&'a [QuantizedTensor<'a>]>,
 
     w_rms_att: &'a [f32],
 
     // FFN
-    w1: MaybeUninit<&'a [f32]>,
-    w2: MaybeUninit<&'a [f32]>,
-    w3: MaybeUninit<&'a [f32]>,
+    w1: Option<&'a [f32]>,
+    w2: Option<&'a [f32]>,
+    w3: Option<&'a [f32]>,
 
-    w1_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    w2_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    w3_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+    w1_quant: Option<&'a [QuantizedTensor<'a>]>,
+    w2_quant: Option<&'a [QuantizedTensor<'a>]>,
+    w3_quant: Option<&'a [QuantizedTensor<'a>]>,
 
     w_rms_post_att: &'a [f32],
 
-    w_rms_pre_ffn: MaybeUninit<&'a [f32]>,
-    w_rms_post_ffn: MaybeUninit<&'a [f32]>,
+    w_rms_pre_ffn: Option<&'a [f32]>,
+    w_rms_post_ffn: Option<&'a [f32]>,
 
     w_rms_final: &'a [f32],
 
-    w_cls: MaybeUninit<&'a [f32]>,
-    w_cls_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+    w_cls: Option<&'a [f32]>,
+    w_cls_quant: Option<&'a [QuantizedTensor<'a>]>,
 }
 
 pub struct TransformerState<'a> {
@@ -127,9 +127,9 @@ pub struct TransformerState<'a> {
     hb: Vec<f32>,
     hb2: Vec<f32>,
     q: Vec<f32>,
-    xq: MaybeUninit<MutableQuantizedTensor<'a>>,
-    xq1: MaybeUninit<MutableQuantizedTensor<'a>>,
-    hq: MaybeUninit<MutableQuantizedTensor<'a>>,
+    xq: Option<MutableQuantizedTensor<'a>>,
+    xq1: Option<MutableQuantizedTensor<'a>>,
+    hq: Option<MutableQuantizedTensor<'a>>,
     logits: Vec<f32>,
 
     // kv cache
@@ -175,8 +175,8 @@ impl<'a> Transformer<'a> {
 
         let kv_dim = cfg.head_size * cfg.n_kv_heads;
 
-        let mut rms_pre_ffn = MaybeUninit::uninit();
-        let mut rms_post_ffn = MaybeUninit::uninit();
+        let mut rms_pre_ffn = None;
+        let mut rms_post_ffn = None;
 
         if !quantized {
             let emb_tab = init_param(data, &mut offset, 1, cfg.vocab_size * cfg.dim);
@@ -208,8 +208,7 @@ impl<'a> Transformer<'a> {
             let rms_post_att = init_param(data, &mut offset, cfg.n_layers, cfg.dim);
 
             if cfg.model_type == ModelType::GEMMA {
-                rms_pre_ffn =
-                    MaybeUninit::new(init_param(data, &mut offset, cfg.n_layers, cfg.dim));
+                rms_pre_ffn = Some(init_param(data, &mut offset, cfg.n_layers, cfg.dim));
             }
 
             let w1 = init_param(data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim);
@@ -217,35 +216,34 @@ impl<'a> Transformer<'a> {
             let w3 = init_param(data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim);
 
             if cfg.model_type == ModelType::GEMMA {
-                rms_post_ffn =
-                    MaybeUninit::new(init_param(data, &mut offset, cfg.n_layers, cfg.dim));
+                rms_post_ffn = Some(init_param(data, &mut offset, cfg.n_layers, cfg.dim));
             }
 
             let rms_final = init_param(data, &mut offset, 1, cfg.dim);
 
             let weights = TransformerWeights {
                 token_embedding_table: emb_tab,
-                wq: MaybeUninit::new(wq),
-                wk: MaybeUninit::new(wk),
-                wv: MaybeUninit::new(wv),
-                wo: MaybeUninit::new(wo),
-                wq_quant: MaybeUninit::uninit(),
-                wk_quant: MaybeUninit::uninit(),
-                wv_quant: MaybeUninit::uninit(),
-                wo_quant: MaybeUninit::uninit(),
+                wq: Some(wq),
+                wk: Some(wk),
+                wv: Some(wv),
+                wo: Some(wo),
+                wq_quant: None,
+                wk_quant: None,
+                wv_quant: None,
+                wo_quant: None,
                 w_rms_att: rms_att,
-                w1: MaybeUninit::new(w1),
-                w2: MaybeUninit::new(w2),
-                w3: MaybeUninit::new(w3),
-                w1_quant: MaybeUninit::uninit(),
-                w2_quant: MaybeUninit::uninit(),
-                w3_quant: MaybeUninit::uninit(),
+                w1: Some(w1),
+                w2: Some(w2),
+                w3: Some(w3),
+                w1_quant: None,
+                w2_quant: None,
+                w3_quant: None,
                 w_rms_post_att: rms_post_att,
                 w_rms_pre_ffn: rms_pre_ffn,
                 w_rms_post_ffn: rms_post_ffn,
                 w_rms_final: rms_final,
-                w_cls: MaybeUninit::new(emb_tab),
-                w_cls_quant: MaybeUninit::uninit(),
+                w_cls: Some(emb_tab),
+                w_cls_quant: None,
             };
 
             let state = TransformerState {
@@ -256,9 +254,9 @@ impl<'a> Transformer<'a> {
                 hb: vec![0.0; cfg.hidden_dim as usize],
                 hb2: vec![0.0; cfg.hidden_dim as usize],
                 q: vec![0.0; (cfg.head_size * cfg.n_heads) as usize],
-                xq: MaybeUninit::uninit(),
-                xq1: MaybeUninit::uninit(),
-                hq: MaybeUninit::uninit(),
+                xq: None,
+                xq1: None,
+                hq: None,
                 key_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
                 value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
                 logits: vec![0.0; cfg.vocab_size as usize],
@@ -328,7 +326,7 @@ impl<'a> Transformer<'a> {
         let rms_post_att = init_param(data, &mut offset, cfg.n_layers, cfg.dim);
 
         if cfg.model_type == ModelType::GEMMA {
-            rms_pre_ffn = MaybeUninit::new(init_param(data, &mut offset, cfg.n_layers, cfg.dim));
+            rms_pre_ffn = Some(init_param(data, &mut offset, cfg.n_layers, cfg.dim));
         }
 
         let w1_quant = init_param_quant(
@@ -357,34 +355,34 @@ impl<'a> Transformer<'a> {
         );
 
         if cfg.model_type == ModelType::GEMMA {
-            rms_post_ffn = MaybeUninit::new(init_param(data, &mut offset, cfg.n_layers, cfg.dim));
+            rms_post_ffn = Some(init_param(data, &mut offset, cfg.n_layers, cfg.dim));
         }
 
         let rms_final = init_param(data, &mut offset, 1, cfg.dim);
 
         let weights = TransformerWeights {
             token_embedding_table: Box::leak(emb_tab.into_boxed_slice()),
-            wq: MaybeUninit::uninit(),
-            wk: MaybeUninit::uninit(),
-            wv: MaybeUninit::uninit(),
-            wo: MaybeUninit::uninit(),
-            wq_quant: MaybeUninit::new(wq_quant),
-            wk_quant: MaybeUninit::new(wk_quant),
-            wv_quant: MaybeUninit::new(wv_quant),
-            wo_quant: MaybeUninit::new(wo_quant),
+            wq: None,
+            wk: None,
+            wv: None,
+            wo: None,
+            wq_quant: Some(wq_quant),
+            wk_quant: Some(wk_quant),
+            wv_quant: Some(wv_quant),
+            wo_quant: Some(wo_quant),
             w_rms_att: rms_att,
-            w1: MaybeUninit::uninit(),
-            w2: MaybeUninit::uninit(),
-            w3: MaybeUninit::uninit(),
-            w1_quant: MaybeUninit::new(w1_quant),
-            w2_quant: MaybeUninit::new(w2_quant),
-            w3_quant: MaybeUninit::new(w3_quant),
+            w1: None,
+            w2: None,
+            w3: None,
+            w1_quant: Some(w1_quant),
+            w2_quant: Some(w2_quant),
+            w3_quant: Some(w3_quant),
             w_rms_post_att: rms_post_att,
             w_rms_pre_ffn: rms_pre_ffn,
             w_rms_post_ffn: rms_post_ffn,
             w_rms_final: rms_final,
-            w_cls: MaybeUninit::uninit(),
-            w_cls_quant: MaybeUninit::new(emb_tab_quant),
+            w_cls: None,
+            w_cls_quant: Some(emb_tab_quant),
         };
 
         let state = TransformerState {
@@ -395,15 +393,15 @@ impl<'a> Transformer<'a> {
             hb: vec![0.0; cfg.hidden_dim as usize],
             hb2: vec![0.0; cfg.hidden_dim as usize],
             q: vec![0.0; (cfg.head_size * cfg.n_heads) as usize],
-            xq: MaybeUninit::new(MutableQuantizedTensor {
+            xq: Some(MutableQuantizedTensor {
                 q: Box::leak(vec![0; (cfg.dim) as usize].into_boxed_slice()),
                 s: Box::leak(vec![0.0; (cfg.dim) as usize].into_boxed_slice()),
             }),
-            xq1: MaybeUninit::new(MutableQuantizedTensor {
+            xq1: Some(MutableQuantizedTensor {
                 q: Box::leak(vec![0; (cfg.head_size * cfg.n_heads) as usize].into_boxed_slice()),
                 s: Box::leak(vec![0.0; (cfg.head_size * cfg.n_heads) as usize].into_boxed_slice()),
             }),
-            hq: MaybeUninit::new(MutableQuantizedTensor {
+            hq: Some(MutableQuantizedTensor {
                 q: Box::leak(vec![0; (cfg.hidden_dim) as usize].into_boxed_slice()),
                 s: Box::leak(vec![0.0; (cfg.hidden_dim) as usize].into_boxed_slice()),
             }),
@@ -464,28 +462,28 @@ impl<'a> Transformer<'a> {
             let v = &mut s.value_cache
                 [(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
 
-            unsafe {
+            {
                 if !quantized {
                     matmul(
                         &mut s.q,
                         &s.xb,
-                        &w.wq.assume_init()[(l * dim * att_dim) as usize
+                        &w.wq.expect("Field not initialized")[(l * dim * att_dim) as usize
                             ..(l * dim * att_dim + dim * att_dim) as usize],
                     );
                     matmul(
                         k,
                         &s.xb,
-                        &w.wk.assume_init()[(l * dim * kv_dim) as usize
+                        &w.wk.expect("Field not initialized")[(l * dim * kv_dim) as usize
                             ..(l * dim * kv_dim + dim * kv_dim) as usize],
                     );
                     matmul(
                         v,
                         &s.xb,
-                        &w.wv.assume_init()[(l * dim * kv_dim) as usize
+                        &w.wv.expect("Field not initialized")[(l * dim * kv_dim) as usize
                             ..(l * dim * kv_dim + dim * kv_dim) as usize],
                     );
                 } else {
-                    let sxq = &mut *s.xq.as_mut_ptr();
+                    let sxq = s.xq.as_mut().expect("Field not initialized");
 
                     if p.q_type == QuantType::Q8_0 {
                         quantize(sxq, &s.xb, dim as usize, gs);
@@ -493,21 +491,21 @@ impl<'a> Transformer<'a> {
                         matmul_q8(
                             &mut s.q,
                             sxq,
-                            &w.wq_quant.assume_init()[l as usize],
+                            &w.wq_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q8(
                             k,
                             sxq,
-                            &w.wk_quant.assume_init()[l as usize],
+                            &w.wk_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q8(
                             v,
                             sxq,
-                            &w.wv_quant.assume_init()[l as usize],
+                            &w.wv_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
@@ -517,21 +515,21 @@ impl<'a> Transformer<'a> {
                         matmul_q4(
                             &mut s.q,
                             sxq,
-                            &w.wq_quant.assume_init()[l as usize],
+                            &w.wq_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q4(
                             k,
                             sxq,
-                            &w.wk_quant.assume_init()[l as usize],
+                            &w.wk_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q4(
                             v,
                             sxq,
-                            &w.wv_quant.assume_init()[l as usize],
+                            &w.wv_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
@@ -640,23 +638,23 @@ impl<'a> Transformer<'a> {
                     }
                 });
 
-            unsafe {
+            {
                 if !quantized {
                     matmul(
                         &mut s.xb2,
                         &s.xb3,
-                        &w.wo.assume_init()[(l * dim * att_dim) as usize
+                        &w.wo.expect("Field not initialized")[(l * dim * att_dim) as usize
                             ..(l * dim * att_dim + dim * att_dim) as usize],
                     );
                 } else {
-                    let sxq1 = &mut *s.xq1.as_mut_ptr();
+                    let sxq1 = s.xq1.as_mut().expect("Field not initialized");
 
                     if p.q_type == QuantType::Q8_0 {
                         quantize(sxq1, &s.xb3, att_dim as usize, gs);
                         matmul_q8(
                             &mut s.xb2,
                             sxq1,
-                            &w.wo_quant.assume_init()[l as usize],
+                            &w.wo_quant.expect("Field not initialized")[l as usize],
                             att_dim as usize,
                             gs as usize,
                         )
@@ -665,7 +663,7 @@ impl<'a> Transformer<'a> {
                         matmul_q4(
                             &mut s.xb2,
                             sxq1,
-                            &w.wo_quant.assume_init()[l as usize],
+                            &w.wo_quant.expect("Field not initialized")[l as usize],
                             att_dim as usize,
                             gs as usize,
                         )
@@ -687,11 +685,11 @@ impl<'a> Transformer<'a> {
                     x[i as usize] += s.xb[i as usize];
                 }
 
-                unsafe {
+                {
                     rmsnorm(
                         &mut s.xb,
                         x,
-                        &w.w_rms_pre_ffn.assume_init()
+                        &w.w_rms_pre_ffn.expect("Field not initialized")
                             [(l * dim) as usize..(l * dim + dim) as usize],
                         dim as usize,
                         p.rms_norm_eps,
@@ -719,36 +717,36 @@ impl<'a> Transformer<'a> {
             // w3 -> up_proj weights
             // GELU using tanh as the approximation
 
-            unsafe {
+            {
                 if !quantized {
                     matmul(
                         &mut s.hb,
                         &s.xb,
-                        &w.w1.assume_init()[(l * dim * hidden_dim) as usize
+                        &w.w1.expect("Field not initialized")[(l * dim * hidden_dim) as usize
                             ..(l * dim * hidden_dim + dim * hidden_dim) as usize],
                     );
                     matmul(
                         &mut s.hb2,
                         &s.xb,
-                        &w.w3.assume_init()[(l * dim * hidden_dim) as usize
+                        &w.w3.expect("Field not initialized")[(l * dim * hidden_dim) as usize
                             ..(l * dim * hidden_dim + dim * hidden_dim) as usize],
                     );
                 } else {
-                    let sxq = &mut *s.xq.as_mut_ptr();
+                    let sxq = s.xq.as_mut().expect("Field not initialized");
 
                     if p.q_type == QuantType::Q8_0 {
                         quantize(sxq, &s.xb, dim as usize, gs);
                         matmul_q8(
                             &mut s.hb,
                             sxq,
-                            &w.w1_quant.assume_init()[l as usize],
+                            &w.w1_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q8(
                             &mut s.hb2,
                             sxq,
-                            &w.w3_quant.assume_init()[l as usize],
+                            &w.w3_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
@@ -757,14 +755,14 @@ impl<'a> Transformer<'a> {
                         matmul_q4(
                             &mut s.hb,
                             sxq,
-                            &w.w1_quant.assume_init()[l as usize],
+                            &w.w1_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q4(
                             &mut s.hb2,
                             sxq,
-                            &w.w3_quant.assume_init()[l as usize],
+                            &w.w3_quant.expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
@@ -792,23 +790,23 @@ impl<'a> Transformer<'a> {
                 s.hb[i as usize] = val;
             }
 
-            unsafe {
+            {
                 if !quantized {
                     matmul(
                         &mut s.xb,
                         &s.hb,
-                        &w.w2.assume_init()[(l * dim * hidden_dim) as usize
+                        &w.w2.expect("Field not initialized")[(l * dim * hidden_dim) as usize
                             ..(l * dim * hidden_dim + dim * hidden_dim) as usize],
                     );
                 } else {
-                    let shq = &mut *s.hq.as_mut_ptr();
+                    let shq = s.hq.as_mut().expect("Field not initialized");
 
                     if p.q_type == QuantType::Q8_0 {
                         quantize(shq, &s.hb, hidden_dim as usize, gs);
                         matmul_q8(
                             &mut s.xb,
                             shq,
-                            &w.w2_quant.assume_init()[l as usize],
+                            &w.w2_quant.expect("Field not initialized")[l as usize],
                             hidden_dim as usize,
                             gs as usize,
                         );
@@ -817,7 +815,7 @@ impl<'a> Transformer<'a> {
                         matmul_q4(
                             &mut s.xb,
                             shq,
-                            &w.w2_quant.assume_init()[l as usize],
+                            &w.w2_quant.expect("Field not initialized")[l as usize],
                             hidden_dim as usize,
                             gs as usize,
                         );
@@ -826,11 +824,11 @@ impl<'a> Transformer<'a> {
             }
 
             if p.model_type == ModelType::GEMMA {
-                unsafe {
+                {
                     rmsnorm(
                         &mut s.xb2,
                         &s.xb,
-                        &w.w_rms_post_ffn.assume_init()
+                        &w.w_rms_post_ffn.expect("Field not initialized")
                             [(l * dim) as usize..(l * dim + dim) as usize],
                         dim as usize,
                         p.rms_norm_eps,
@@ -859,18 +857,18 @@ impl<'a> Transformer<'a> {
             p.model_type == ModelType::GEMMA,
         );
 
-        unsafe {
+        {
             if !quantized {
-                matmul(&mut s.logits, x, w.w_cls.assume_init());
+                matmul(&mut s.logits, x, w.w_cls.expect("Field not initialized"));
             } else {
-                let sxq = &mut *s.xq.as_mut_ptr();
+                let sxq = s.xq.as_mut().expect("Field not initialized");
 
                 if p.q_type == QuantType::Q8_0 {
                     quantize(sxq, x, dim as usize, gs);
                     matmul_q8(
                         &mut s.logits,
                         sxq,
-                        &w.w_cls_quant.assume_init()[0],
+                        &w.w_cls_quant.expect("Field not initialized")[0],
                         dim as usize,
                         gs as usize,
                     );
@@ -879,7 +877,7 @@ impl<'a> Transformer<'a> {
                     matmul_q4(
                         &mut s.logits,
                         sxq,
-                        &w.w_cls_quant.assume_init()[0],
+                        &w.w_cls_quant.expect("Field not initialized")[0],
                         dim as usize,
                         gs as usize,
                     );
@@ -913,41 +911,70 @@ impl<'a> Drop for Transformer<'a> {
                 let layer_weights_layout =
                     Layout::array::<QuantizedTensor>(self.args.n_layers as usize).unwrap();
                 dealloc(
-                    self.weights.wq_quant.assume_init().as_ptr() as *mut u8,
+                    self.weights
+                        .wq_quant
+                        .expect("Field not initialized")
+                        .as_ptr() as *mut u8,
                     layer_weights_layout,
                 );
                 dealloc(
-                    self.weights.wk_quant.assume_init().as_ptr() as *mut u8,
+                    self.weights
+                        .wk_quant
+                        .expect("Field not initialized")
+                        .as_ptr() as *mut u8,
                     layer_weights_layout,
                 );
                 dealloc(
-                    self.weights.wv_quant.assume_init().as_ptr() as *mut u8,
+                    self.weights
+                        .wv_quant
+                        .expect("Field not initialized")
+                        .as_ptr() as *mut u8,
                     layer_weights_layout,
                 );
                 dealloc(
-                    self.weights.wo_quant.assume_init().as_ptr() as *mut u8,
+                    self.weights
+                        .wo_quant
+                        .expect("Field not initialized")
+                        .as_ptr() as *mut u8,
                     layer_weights_layout,
                 );
                 dealloc(
-                    self.weights.w1_quant.assume_init().as_ptr() as *mut u8,
+                    self.weights
+                        .w1_quant
+                        .expect("Field not initialized")
+                        .as_ptr() as *mut u8,
                     layer_weights_layout,
                 );
                 dealloc(
-                    self.weights.w2_quant.assume_init().as_ptr() as *mut u8,
+                    self.weights
+                        .w2_quant
+                        .expect("Field not initialized")
+                        .as_ptr() as *mut u8,
                     layer_weights_layout,
                 );
                 dealloc(
-                    self.weights.w3_quant.assume_init().as_ptr() as *mut u8,
+                    self.weights
+                        .w3_quant
+                        .expect("Field not initialized")
+                        .as_ptr() as *mut u8,
                     layer_weights_layout,
                 );
                 dealloc(
-                    self.weights.w_cls_quant.assume_init().as_ptr() as *mut u8,
-                    Layout::array::<QuantizedTensor>(self.weights.w_cls_quant.assume_init().len())
-                        .unwrap(),
+                    self.weights
+                        .w_cls_quant
+                        .expect("Field not initialized")
+                        .as_ptr() as *mut u8,
+                    Layout::array::<QuantizedTensor>(
+                        self.weights
+                            .w_cls_quant
+                            .expect("Field not initialized")
+                            .len(),
+                    )
+                    .unwrap(),
                 );
 
                 // State
-                let sxq = &mut *self.state.xq.as_mut_ptr();
+                let sxq = self.state.xq.as_mut().expect("Field not initialized");
                 dealloc(
                     sxq.q.as_ptr() as *mut u8,
                     Layout::array::<i8>(sxq.q.len()).unwrap(),
@@ -957,7 +984,7 @@ impl<'a> Drop for Transformer<'a> {
                     Layout::array::<f32>(sxq.s.len()).unwrap(),
                 );
 
-                let sxq1 = &mut *self.state.xq1.as_mut_ptr();
+                let sxq1 = self.state.xq1.as_mut().expect("Field not initialized");
                 dealloc(
                     sxq1.q.as_ptr() as *mut u8,
                     Layout::array::<i8>(sxq1.q.len()).unwrap(),
@@ -967,7 +994,7 @@ impl<'a> Drop for Transformer<'a> {
                     Layout::array::<f32>(sxq1.s.len()).unwrap(),
                 );
 
-                let shq = &mut *self.state.hq.as_mut_ptr();
+                let shq = self.state.hq.as_mut().expect("Field not initialized");
                 dealloc(
                     shq.q.as_ptr() as *mut u8,
                     Layout::array::<i8>(shq.q.len()).unwrap(),
