@@ -9,9 +9,9 @@ pub struct QuantizedTensor<'a> {
     pub q: &'a [i8],
     pub s: &'a [f32],
 }
-pub struct MutableQuantizedTensor<'a> {
-    pub q: &'a mut [i8],
-    pub s: &'a mut [f32],
+pub struct MutableQuantizedTensor {
+    pub q: Vec<i8>,
+    pub s: Vec<f32>,
 }
 
 fn unpack(value: i8) -> (i8, i8) {

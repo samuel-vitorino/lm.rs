@@ -119,7 +119,7 @@ pub struct TransformerWeights<'a> {
     w_cls_quant: Option<&'a [QuantizedTensor<'a>]>,
 }
 
-pub struct TransformerState<'a> {
+pub struct TransformerState {
     x: Vec<f32>,
     xb: Vec<f32>,
     xb2: Vec<f32>,
@@ -127,9 +127,9 @@ pub struct TransformerState<'a> {
     hb: Vec<f32>,
     hb2: Vec<f32>,
     q: Vec<f32>,
-    xq: Option<MutableQuantizedTensor<'a>>,
-    xq1: Option<MutableQuantizedTensor<'a>>,
-    hq: Option<MutableQuantizedTensor<'a>>,
+    xq: Option<MutableQuantizedTensor>,
+    xq1: Option<MutableQuantizedTensor>,
+    hq: Option<MutableQuantizedTensor>,
     logits: Vec<f32>,
 
     // kv cache
@@ -140,7 +140,7 @@ pub struct TransformerState<'a> {
 pub struct Transformer<'a> {
     pub args: TransformerArgs,
     weights: TransformerWeights<'a>,
-    state: TransformerState<'a>,
+    state: TransformerState,
 }
 
 impl<'a> Transformer<'a> {
@@ -394,16 +394,16 @@ impl<'a> Transformer<'a> {
             hb2: vec![0.0; cfg.hidden_dim as usize],
             q: vec![0.0; (cfg.head_size * cfg.n_heads) as usize],
             xq: Some(MutableQuantizedTensor {
-                q: Box::leak(vec![0; (cfg.dim) as usize].into_boxed_slice()),
-                s: Box::leak(vec![0.0; (cfg.dim) as usize].into_boxed_slice()),
+                q: vec![0; (cfg.dim) as usize],
+                s: vec![0.0; (cfg.dim) as usize],
             }),
             xq1: Some(MutableQuantizedTensor {
-                q: Box::leak(vec![0; (cfg.head_size * cfg.n_heads) as usize].into_boxed_slice()),
-                s: Box::leak(vec![0.0; (cfg.head_size * cfg.n_heads) as usize].into_boxed_slice()),
+                q: vec![0; (cfg.head_size * cfg.n_heads) as usize],
+                s: vec![0.0; (cfg.head_size * cfg.n_heads) as usize],
             }),
             hq: Some(MutableQuantizedTensor {
-                q: Box::leak(vec![0; (cfg.hidden_dim) as usize].into_boxed_slice()),
-                s: Box::leak(vec![0.0; (cfg.hidden_dim) as usize].into_boxed_slice()),
+                q: vec![0; (cfg.hidden_dim) as usize],
+                s: vec![0.0; (cfg.hidden_dim) as usize],
             }),
             key_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
             value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
@@ -971,37 +971,6 @@ impl<'a> Drop for Transformer<'a> {
                             .len(),
                     )
                     .unwrap(),
-                );
-
-                // State
-                let sxq = self.state.xq.as_mut().expect("Field not initialized");
-                dealloc(
-                    sxq.q.as_ptr() as *mut u8,
-                    Layout::array::<i8>(sxq.q.len()).unwrap(),
-                );
-                dealloc(
-                    sxq.s.as_ptr() as *mut u8,
-                    Layout::array::<f32>(sxq.s.len()).unwrap(),
-                );
-
-                let sxq1 = self.state.xq1.as_mut().expect("Field not initialized");
-                dealloc(
-                    sxq1.q.as_ptr() as *mut u8,
-                    Layout::array::<i8>(sxq1.q.len()).unwrap(),
-                );
-                dealloc(
-                    sxq1.s.as_ptr() as *mut u8,
-                    Layout::array::<f32>(sxq1.s.len()).unwrap(),
-                );
-
-                let shq = self.state.hq.as_mut().expect("Field not initialized");
-                dealloc(
-                    shq.q.as_ptr() as *mut u8,
-                    Layout::array::<i8>(shq.q.len()).unwrap(),
-                );
-                dealloc(
-                    shq.s.as_ptr() as *mut u8,
-                    Layout::array::<f32>(shq.s.len()).unwrap(),
                 );
             }
         }
