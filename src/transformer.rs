@@ -30,7 +30,7 @@ fn init_param_quant<'a>(
     size_each: u32,
     gs: u32,
     q_type: QuantType,
-) -> &'a [QuantizedTensor<'a>] {
+) -> Vec<QuantizedTensor<'a>> {
     let mut res: Vec<QuantizedTensor> = Vec::with_capacity(n as usize);
     let groups = (size_each / gs) as usize;
     let mut size = size_each;
@@ -56,7 +56,7 @@ fn init_param_quant<'a>(
         res.push(qt);
     }
 
-    Box::leak(res.into_boxed_slice())
+    res
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -92,10 +92,10 @@ pub struct TransformerWeights<'a> {
     wv: Option<&'a [f32]>,
     wo: Option<&'a [f32]>,
 
-    wq_quant: Option<&'a [QuantizedTensor<'a>]>,
-    wk_quant: Option<&'a [QuantizedTensor<'a>]>,
-    wv_quant: Option<&'a [QuantizedTensor<'a>]>,
-    wo_quant: Option<&'a [QuantizedTensor<'a>]>,
+    wq_quant: Option<Vec<QuantizedTensor<'a>>>,
+    wk_quant: Option<Vec<QuantizedTensor<'a>>>,
+    wv_quant: Option<Vec<QuantizedTensor<'a>>>,
+    wo_quant: Option<Vec<QuantizedTensor<'a>>>,
 
     w_rms_att: &'a [f32],
 
@@ -104,9 +104,9 @@ pub struct TransformerWeights<'a> {
     w2: Option<&'a [f32]>,
     w3: Option<&'a [f32]>,
 
-    w1_quant: Option<&'a [QuantizedTensor<'a>]>,
-    w2_quant: Option<&'a [QuantizedTensor<'a>]>,
-    w3_quant: Option<&'a [QuantizedTensor<'a>]>,
+    w1_quant: Option<Vec<QuantizedTensor<'a>>>,
+    w2_quant: Option<Vec<QuantizedTensor<'a>>>,
+    w3_quant: Option<Vec<QuantizedTensor<'a>>>,
 
     w_rms_post_att: &'a [f32],
 
@@ -116,7 +116,7 @@ pub struct TransformerWeights<'a> {
     w_rms_final: &'a [f32],
 
     w_cls: Option<&'a [f32]>,
-    w_cls_quant: Option<&'a [QuantizedTensor<'a>]>,
+    w_cls_quant: Option<Vec<QuantizedTensor<'a>>>,
 }
 
 pub struct TransformerState {
@@ -491,21 +491,21 @@ impl<'a> Transformer<'a> {
                         matmul_q8(
                             &mut s.q,
                             sxq,
-                            &w.wq_quant.expect("Field not initialized")[l as usize],
+                            &w.wq_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q8(
                             k,
                             sxq,
-                            &w.wk_quant.expect("Field not initialized")[l as usize],
+                            &w.wk_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q8(
                             v,
                             sxq,
-                            &w.wv_quant.expect("Field not initialized")[l as usize],
+                            &w.wv_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
@@ -515,21 +515,21 @@ impl<'a> Transformer<'a> {
                         matmul_q4(
                             &mut s.q,
                             sxq,
-                            &w.wq_quant.expect("Field not initialized")[l as usize],
+                            &w.wq_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q4(
                             k,
                             sxq,
-                            &w.wk_quant.expect("Field not initialized")[l as usize],
+                            &w.wk_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q4(
                             v,
                             sxq,
-                            &w.wv_quant.expect("Field not initialized")[l as usize],
+                            &w.wv_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
@@ -654,7 +654,7 @@ impl<'a> Transformer<'a> {
                         matmul_q8(
                             &mut s.xb2,
                             sxq1,
-                            &w.wo_quant.expect("Field not initialized")[l as usize],
+                            &w.wo_quant.as_ref().expect("Field not initialized")[l as usize],
                             att_dim as usize,
                             gs as usize,
                         )
@@ -663,7 +663,7 @@ impl<'a> Transformer<'a> {
                         matmul_q4(
                             &mut s.xb2,
                             sxq1,
-                            &w.wo_quant.expect("Field not initialized")[l as usize],
+                            &w.wo_quant.as_ref().expect("Field not initialized")[l as usize],
                             att_dim as usize,
                             gs as usize,
                         )
@@ -739,14 +739,14 @@ impl<'a> Transformer<'a> {
                         matmul_q8(
                             &mut s.hb,
                             sxq,
-                            &w.w1_quant.expect("Field not initialized")[l as usize],
+                            &w.w1_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q8(
                             &mut s.hb2,
                             sxq,
-                            &w.w3_quant.expect("Field not initialized")[l as usize],
+                            &w.w3_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
@@ -755,14 +755,14 @@ impl<'a> Transformer<'a> {
                         matmul_q4(
                             &mut s.hb,
                             sxq,
-                            &w.w1_quant.expect("Field not initialized")[l as usize],
+                            &w.w1_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
                         matmul_q4(
                             &mut s.hb2,
                             sxq,
-                            &w.w3_quant.expect("Field not initialized")[l as usize],
+                            &w.w3_quant.as_ref().expect("Field not initialized")[l as usize],
                             dim as usize,
                             gs as usize,
                         );
@@ -806,7 +806,7 @@ impl<'a> Transformer<'a> {
                         matmul_q8(
                             &mut s.xb,
                             shq,
-                            &w.w2_quant.expect("Field not initialized")[l as usize],
+                            &w.w2_quant.as_ref().expect("Field not initialized")[l as usize],
                             hidden_dim as usize,
                             gs as usize,
                         );
@@ -815,7 +815,7 @@ impl<'a> Transformer<'a> {
                         matmul_q4(
                             &mut s.xb,
                             shq,
-                            &w.w2_quant.expect("Field not initialized")[l as usize],
+                            &w.w2_quant.as_ref().expect("Field not initialized")[l as usize],
                             hidden_dim as usize,
                             gs as usize,
                         );
@@ -868,7 +868,7 @@ impl<'a> Transformer<'a> {
                     matmul_q8(
                         &mut s.logits,
                         sxq,
-                        &w.w_cls_quant.expect("Field not initialized")[0],
+                        &w.w_cls_quant.as_ref().expect("Field not initialized")[0],
                         dim as usize,
                         gs as usize,
                     );
@@ -877,7 +877,7 @@ impl<'a> Transformer<'a> {
                     matmul_q4(
                         &mut s.logits,
                         sxq,
-                        &w.w_cls_quant.expect("Field not initialized")[0],
+                        &w.w_cls_quant.as_ref().expect("Field not initialized")[0],
                         dim as usize,
                         gs as usize,
                     );
@@ -906,71 +906,6 @@ impl<'a> Drop for Transformer<'a> {
                 dealloc(
                     self.weights.token_embedding_table.as_ptr() as *mut u8,
                     Layout::array::<f32>(self.weights.token_embedding_table.len()).unwrap(),
-                );
-
-                let layer_weights_layout =
-                    Layout::array::<QuantizedTensor>(self.args.n_layers as usize).unwrap();
-                dealloc(
-                    self.weights
-                        .wq_quant
-                        .expect("Field not initialized")
-                        .as_ptr() as *mut u8,
-                    layer_weights_layout,
-                );
-                dealloc(
-                    self.weights
-                        .wk_quant
-                        .expect("Field not initialized")
-                        .as_ptr() as *mut u8,
-                    layer_weights_layout,
-                );
-                dealloc(
-                    self.weights
-                        .wv_quant
-                        .expect("Field not initialized")
-                        .as_ptr() as *mut u8,
-                    layer_weights_layout,
-                );
-                dealloc(
-                    self.weights
-                        .wo_quant
-                        .expect("Field not initialized")
-                        .as_ptr() as *mut u8,
-                    layer_weights_layout,
-                );
-                dealloc(
-                    self.weights
-                        .w1_quant
-                        .expect("Field not initialized")
-                        .as_ptr() as *mut u8,
-                    layer_weights_layout,
-                );
-                dealloc(
-                    self.weights
-                        .w2_quant
-                        .expect("Field not initialized")
-                        .as_ptr() as *mut u8,
-                    layer_weights_layout,
-                );
-                dealloc(
-                    self.weights
-                        .w3_quant
-                        .expect("Field not initialized")
-                        .as_ptr() as *mut u8,
-                    layer_weights_layout,
-                );
-                dealloc(
-                    self.weights
-                        .w_cls_quant
-                        .expect("Field not initialized")
-                        .as_ptr() as *mut u8,
-                    Layout::array::<QuantizedTensor>(
-                        self.weights
-                            .w_cls_quant
-                            .expect("Field not initialized")
-                            .len(),
-                    )
-                    .unwrap(),
                 );
             }
         }
