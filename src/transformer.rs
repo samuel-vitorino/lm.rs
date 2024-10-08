@@ -7,11 +7,11 @@ use crate::functional::softmax;
 use crate::functional::u8_to_f32_slice;
 use crate::functional::u8_to_i8_slice;
 
+use crate::functional::SliceOrVec;
 use crate::quantization::*;
 
 use memmap2::Mmap;
 use rayon::prelude::*;
-use std::alloc::{dealloc, Layout};
 use std::mem::size_of;
 
 fn init_param<'a>(data: &'a [u8], offset: &mut usize, n: u32, size_each: u32) -> &'a [f32] {
@@ -84,7 +84,7 @@ pub struct TransformerArgs {
 }
 
 pub struct TransformerWeights<'a> {
-    token_embedding_table: &'a [f32],
+    token_embedding_table: SliceOrVec<'a, f32>,
 
     // Attention
     wq: Option<&'a [f32]>,
@@ -222,7 +222,7 @@ impl<'a> Transformer<'a> {
             let rms_final = init_param(data, &mut offset, 1, cfg.dim);
 
             let weights = TransformerWeights {
-                token_embedding_table: emb_tab,
+                token_embedding_table: SliceOrVec::Slice(emb_tab),
                 wq: Some(wq),
                 wk: Some(wk),
                 wv: Some(wv),
@@ -361,7 +361,7 @@ impl<'a> Transformer<'a> {
         let rms_final = init_param(data, &mut offset, 1, cfg.dim);
 
         let weights = TransformerWeights {
-            token_embedding_table: Box::leak(emb_tab.into_boxed_slice()),
+            token_embedding_table: SliceOrVec::Vec(emb_tab),
             wq: None,
             wk: None,
             wv: None,
@@ -894,20 +894,5 @@ impl<'a> Transformer<'a> {
         }
 
         &mut s.logits
-    }
-}
-
-// Deallocate fields created with Box::leak
-impl<'a> Drop for Transformer<'a> {
-    fn drop(&mut self) {
-        if self.args.q_type != QuantType::None {
-            unsafe {
-                // Weights
-                dealloc(
-                    self.weights.token_embedding_table.as_ptr() as *mut u8,
-                    Layout::array::<f32>(self.weights.token_embedding_table.len()).unwrap(),
-                );
-            }
-        }
     }
 }

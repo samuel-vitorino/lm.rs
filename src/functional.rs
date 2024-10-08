@@ -2,7 +2,25 @@ use crate::quantization::{MutableQuantizedTensor, QuantizedTensor};
 
 use rayon::prelude::*;
 use std::convert::TryInto;
+use std::ops::Deref;
 use wide::{f32x8, i32x8};
+
+/// Allocs to use either a `Vec` or a slice in the same place
+pub enum SliceOrVec<'a, T> {
+    Slice(&'a [T]),
+    Vec(Vec<T>),
+}
+
+impl<'a, T> Deref for SliceOrVec<'a, T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        match self {
+            &Self::Slice(slice) => slice,
+            &Self::Vec(ref vec) => &vec[..],
+        }
+    }
+}
 
 // Some helper functions
 
