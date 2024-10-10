@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
 
             let mut tokenizer = Tokenizer::new(tokenizer_path);
 
-            let mut model = Transformer::new(&data);
+            let (mut model, _offset) = Transformer::new(&data);
 
             let seed: u64;
 

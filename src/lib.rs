@@ -3,3 +3,7 @@ pub mod functional;
 pub mod transformer;
 pub mod sampler;
 pub mod quantization;
+#[cfg(feature = "multimodal")]
+pub mod vision;
+#[cfg(feature = "multimodal")]
+pub mod processor;

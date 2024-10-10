@@ -90,6 +90,8 @@ impl Tokenizer {
                 tokens.extend([self.bos, 106, 1645, 108]);
             } else if model_type == ModelType::LLAMA {
                 tokens.extend([128006, 882, 128007, 271]);
+            } else if model_type == ModelType::PHI {
+                tokens.extend([self.bos, 32010, 29871, 13]);
             }
         }
 
@@ -136,6 +138,8 @@ impl Tokenizer {
                 tokens.extend([107, 108, 106, 2516, 108]);
             } else if model_type == ModelType::LLAMA {
                 tokens.extend([128009, 128006, 78191, 128007, 271]);
+            } else if model_type == ModelType::PHI {
+                tokens.extend([32007, 29871, 13, 32001, 29871, 13]);
             }
         }
 
