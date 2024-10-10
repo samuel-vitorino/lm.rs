@@ -225,7 +225,7 @@ fn app() -> Element {
     });
 
     let mut handle_submit = {
-        let user_input = user_input.clone();
+        let mut user_input = user_input.clone();
 
         move || {
             if is_waiting_for_response() {
@@ -242,6 +242,7 @@ fn app() -> Element {
                 return;
             }
             is_waiting_for_response.set(true);
+            user_input.write().clear();
             to_model_channel()
                 .send(input_trimmed)
                 .expect("Failed to send the input to the model thread");
