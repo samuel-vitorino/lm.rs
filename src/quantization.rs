@@ -5,13 +5,13 @@ pub enum QuantType {
     Q4_0,
 }
 
-pub struct QuantizedTensor<'a>{
+pub struct QuantizedTensor<'a> {
     pub q: &'a [i8],
     pub s: &'a [f32],
 }
-pub struct MutableQuantizedTensor<'a>{
-    pub q: &'a mut [i8],
-    pub s: &'a mut [f32],
+pub struct MutableQuantizedTensor {
+    pub q: Vec<i8>,
+    pub s: Vec<f32>,
 }
 
 fn unpack(value: i8) -> (i8, i8) {
@@ -24,24 +24,24 @@ fn unpack(value: i8) -> (i8, i8) {
 
 pub fn dequantize(qx: &QuantizedTensor, x: &mut [f32], n: usize, gs: u32, q_type: QuantType) {
     match q_type {
-        QuantType::Q8_0 => { 
+        QuantType::Q8_0 => {
             for (i, value) in x.iter_mut().enumerate().take(n) {
                 *value = qx.q[i] as f32 * qx.s[(i as u32 / gs) as usize];
             }
-        },
-        QuantType::Q4_0 => { 
-            for i in 0..(n/2) {
+        }
+        QuantType::Q4_0 => {
+            for i in 0..(n / 2) {
                 let (a, b) = unpack(qx.q[i]);
-                let scale = qx.s[((i*2) as u32 / gs) as usize];
-                x[i*2] = a as f32 * scale;
-                x[i*2+1] = b as f32 * scale;
+                let scale = qx.s[((i * 2) as u32 / gs) as usize];
+                x[i * 2] = a as f32 * scale;
+                x[i * 2 + 1] = b as f32 * scale;
             }
-        },
+        }
         _ => (),
-    }  
+    }
 }
 
-pub fn quantize(qx: &mut MutableQuantizedTensor, x: & [f32], n: usize, gs: u32) {
+pub fn quantize(qx: &mut MutableQuantizedTensor, x: &[f32], n: usize, gs: u32) {
     let num_groups: u32 = n as u32 / gs;
     let q_max: f32 = 127.0f32;
 
@@ -55,7 +55,7 @@ pub fn quantize(qx: &mut MutableQuantizedTensor, x: & [f32], n: usize, gs: u32) 
         }
 
         let scale = wmax / q_max;
-        
+
         qx.s[group as usize] = scale;
 
         for i in 0..gs {
@@ -66,7 +66,7 @@ pub fn quantize(qx: &mut MutableQuantizedTensor, x: & [f32], n: usize, gs: u32) 
     }
 }
 
-pub fn quantize_q4(qx: &mut MutableQuantizedTensor, x: & [f32], n: usize, gs: u32) {
+pub fn quantize_q4(qx: &mut MutableQuantizedTensor, x: &[f32], n: usize, gs: u32) {
     let num_groups: u32 = n as u32 / gs;
     let q_max: f32 = -8.0f32;
 
@@ -80,15 +80,15 @@ pub fn quantize_q4(qx: &mut MutableQuantizedTensor, x: & [f32], n: usize, gs: u3
         }
 
         let scale = wmax / q_max;
-        
+
         qx.s[group as usize] = scale;
 
-        for i in 0..(gs/2) {
-            let quant_value_a = x[(group * gs + i*2) as usize] / scale;
-            let quant_value_b = x[(group * gs + i*2 + 1) as usize] / scale;
+        for i in 0..(gs / 2) {
+            let quant_value_a = x[(group * gs + i * 2) as usize] / scale;
+            let quant_value_b = x[(group * gs + i * 2 + 1) as usize] / scale;
             let quantized_a: i8 = ((quant_value_a + 8.0).round() as u8).clamp(0, 15) as i8;
             let quantized_b: i8 = ((quant_value_b + 8.0).round() as u8).clamp(0, 15) as i8;
-        
+
             qx.q[(group * gs / 2 + i) as usize] = quantized_a | (quantized_b << 4);
         }
     }
