@@ -5,6 +5,8 @@ from typing import List
 
 class Tokenizer:
     def __init__(self, model_id=None):
+        self.model_id = model_id
+
         if "vision" in model_id:
             self.special_tokens = AutoTokenizer.from_pretrained(model_id).added_tokens_decoder
             model_id = "microsoft/Phi-3.5-mini-instruct"
@@ -13,7 +15,7 @@ class Tokenizer:
 
         self.model = AutoTokenizer.from_pretrained(model_id, use_fast=False).sp_model
         self.n_words = self.model.vocab_size()
-        
+
         self.n_words = self.model.vocab_size()
         
         self.bos_id = self.model.bos_id()
@@ -40,6 +42,16 @@ class Tokenizer:
             s = 0
             
             t = t.replace('▁', ' ')
+            b = t.encode('utf-8')
+
+            tokens.append(b)
+            scores.append(s)
+
+            self.n_words += 1
+
+        # Temporary fix
+        if self.model_id == "microsoft/Phi-3.5-mini-instruct":
+            t = "<|placeholder7|>"
             b = t.encode('utf-8')
 
             tokens.append(b)
