@@ -83,6 +83,20 @@ Other arguments include tokenizer, temperature, top-p, show-metrics etc. To chec
 
 ---
 
+Run the desktop app
+
+```properties
+RUSTFLAGS="-C target-cpu=native" cargo build --release --features desktop --bin desktop
+```
+
+Then run:
+
+```properties
+./target/release/backend --model [model weights file]
+```
+
+---
+
 To run the backend for the [WebUI](https://github.com/samuel-vitorino/lm.rs-webui), first compile:
 
 ```properties
