@@ -36,6 +36,7 @@ Some benchmarks and download links for the models and tokenizers. I recommend us
 | [Llama 3.2 1B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-Q8_0-LMRS) | 1.27GB | 35 tok/s  |
 | [Llama 3.2 3B IT Q4_0](https://huggingface.co/samuel-vitorino/Llama-3.2-3B-Instruct-Q4_0-LMRS) | 1.71GB  | 17 tok/s  | 
 | [Llama 3.2 3B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-3B-Instruct-Q8_0-LMRS) | 3.31GB | 16 tok/s  |
+| [PHI 3.5 IT Vision Q8_0](https://huggingface.co/samuel-vitorino/Phi-3.5-vision-instruct-q8_0-LMRS) | 4.28GB | 15 tok/s  |
 
 ## Instructions
 
