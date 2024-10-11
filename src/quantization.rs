@@ -1,8 +1,8 @@
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum QuantType {
-    None,
-    Q8_0,
-    Q4_0,
+    None = 0,
+    Q8_0 = 1,
+    Q4_0 = 2,
 }
 
 pub struct QuantizedTensor<'a>{

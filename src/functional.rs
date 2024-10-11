@@ -77,6 +77,42 @@ pub fn rmsnorm(o: &mut [f32], x: &[f32], weight: &[f32], size: usize, eps: f32, 
     } 
 }
 
+pub fn layernorm(o: &mut [f32], x: &[f32], weight: &[f32], bias: &[f32], size: usize, eps: f32) {
+    let n_simd = size / 8;
+
+    let mut mean_sim = f32x8::ZERO;
+    let mut var_sim = f32x8::ZERO;
+
+    for j in 0..n_simd {
+        let x_vec = f32x8::from(&x[j * 8..j * 8 + 8]);
+        mean_sim += x_vec;
+    }
+
+    let mean = mean_sim.reduce_add() / size as f32;
+
+    for j in 0..n_simd {
+        let x_vec = f32x8::from(&x[j * 8..j * 8 + 8]);
+        let diff = x_vec - f32x8::splat(mean);
+        var_sim += diff * diff;
+    }
+
+    let variance = var_sim.reduce_add() / size as f32 + eps;
+    let inv_std = 1.0 / variance.sqrt();
+
+    for j in 0..n_simd {
+        let x_vec = f32x8::from(&x[j * 8..j * 8 + 8]);
+        let w_vec = f32x8::from(&weight[j * 8..j * 8 + 8]);
+        let b_vec = f32x8::from(&bias[j * 8..j * 8 + 8]);
+
+        let normalized = (x_vec - f32x8::splat(mean)) * f32x8::splat(inv_std);
+        let r = (normalized * w_vec + b_vec).to_array(); 
+
+        for k in 0..8 {
+            o[(j * 8) + k] = r[k];
+        }
+    }
+}
+
 pub fn softmax(x: &mut [f32]){
     let mut sum: f32 = 0.0;
     let mut max_val: f32 = x[0];
@@ -100,9 +136,12 @@ pub fn softmax(x: &mut [f32]){
 pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
     let n = x.len();
     let n_simd = n / 8;
+    
+    let rest = n_simd * 8;
 
     xout.par_iter_mut().enumerate().for_each(|(i, val)| {
         let mut sum = f32x8::ZERO;
+        let mut final_sum: f32 = 0.0;
         let w_slice = &w[i * n..i * n + n];
 
         for j in 0..n_simd {
@@ -111,18 +150,26 @@ pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
             sum += w_vec * x_vec;
         }
 
-        *val = sum.reduce_add();
+        final_sum += sum.reduce_add();
+        
+        for r in rest..n {
+            final_sum += w_slice[r] * x[r];
+        }
+
+        *val = final_sum;
     });
 }
 
 pub fn matmul_q8(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, gs: usize) {
     let n_simd = gs / 8;
+    let rest = n_simd * 8;
     
     xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
         let ni: usize = i * n;
 
         *xout_elem = (0..=(n - gs)).step_by(gs).map(|j| {
             let mut ival = i32x8::ZERO;
+            let mut sum: f32 = 0.0;
 
             for k in 0..n_simd {
                 let x_vec = i32x8::from(&x.q[j+k*8..j+k*8+8]);
@@ -131,7 +178,15 @@ pub fn matmul_q8(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
                 ival += x_vec * w_vec;
             }
 
-            (ival.reduce_add() as f32) * w.s[(ni + j) / gs] * x.s[j / gs]
+            sum += ival.reduce_add() as f32;
+            
+            for r in rest..gs {
+                sum += (x.q[j+r] as i32 * w.q[ni+j+r] as i32) as f32;
+            }
+            
+            sum *= w.s[(ni + j) / gs] * x.s[j / gs];
+
+            sum
         }).sum();
     });
 }
@@ -139,6 +194,7 @@ pub fn matmul_q8(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
 pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, gs: usize) {
     let group_size = gs / 2;
     let n_simd = group_size / 8;
+    let rest = n_simd * 8;
 
     let mask_a = i32x8::new([0x0F; 8]);
     let mask_b = i32x8::new([0xF0; 8]);
@@ -148,6 +204,7 @@ pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
 
         *xout_elem = (0..=(n/2 - group_size)).step_by(group_size).map(|j| {
             let mut ival = i32x8::ZERO;
+            let mut sum: f32 = 0.0;
 
             for k in 0..n_simd {
                 let x_vec = i32x8::from(&x.q[j+k*8..j+k*8+8]);
@@ -163,7 +220,63 @@ pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
                 ival += x_b * w_b;
             }
 
-            (ival.reduce_add() as f32) * w.s[(ni + j) / group_size] * x.s[j / group_size]
+            sum += ival.reduce_add() as f32;
+
+            for r in rest..group_size {
+                let x_vec = x.q[j+r] as i32;
+                let w_vec = w.q[ni+j+r] as i32;
+
+                let x_a = (x_vec & 0x0F) - 8;
+                let w_a = (w_vec & 0x0F) - 8;
+                
+                let x_b = (0x0F & ((x_vec & 0xF0) >> 4)) - 8;
+                let w_b = (0x0F & ((w_vec & 0xF0) >> 4)) - 8;
+
+                sum += (x_a * w_a) as f32;
+                sum += (x_b * w_b) as f32;
+            }
+            
+            sum *= w.s[(ni + j) / group_size] * x.s[j / group_size];
+
+            sum
         }).sum();
     });
+}
+
+pub fn matmul_conv(xout: &mut [f32], x: &[f32], w: &[f32], n: usize, patches_per_row: u32) {
+    let n_simd = n / 8;
+    let rest = n_simd * 8;
+    let x_len = x.len();
+    
+    xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
+        let ni: usize = (i / (patches_per_row*patches_per_row) as usize) * n;
+        let x_idx = i*n % x_len;
+
+        let mut val = f32x8::ZERO;
+        let mut sum: f32 = 0.0;
+
+        for k in 0..n_simd {
+            let x_vec = f32x8::from(&x[x_idx+k*8..x_idx+k*8+8]);
+            let w_vec = f32x8::from(&w[ni+k*8..ni+k*8+8]);
+
+            val += x_vec * w_vec;
+        }
+
+        sum += val.reduce_add();
+        
+        for r in rest..n {
+            sum += x[x_idx+r] * w[ni+r];
+        }
+
+        *xout_elem = sum;
+    });
+}
+
+pub fn concat<T: Clone>(arr0: &[T], arr1: &[T]) -> Vec<T> {
+    let mut concat_arr: Vec<T> = Vec::new();
+
+    concat_arr.extend_from_slice(arr0);
+    concat_arr.extend_from_slice(arr1);
+
+    concat_arr
 }

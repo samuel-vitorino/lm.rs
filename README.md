@@ -16,9 +16,9 @@ lm.rs: run inference on Language Models locally on the CPU with Rust
 
 ---
 
-**Now supporting LLama3.2 1B and 3B models! [WebUI](https://github.com/samuel-vitorino/lm.rs-webui) also now available.**
+**🌃 Now supporting multimodality with PHI-3.5-vision model! PHI-3.5-mini text-only model also now supported.**
 
-Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU without ML libraries. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models.
+Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU without ML libraries. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models, and more recently the option to use images with PHI-3.5. Image processing/encoding currently takes a bit, so it slows the first response, working on optimization now.
 
 Disclaimer: some of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
@@ -49,20 +49,20 @@ Install additional python dependencies (assuming you already have pytorch instal
 pip install -r requirements.txt
 ```
 
-Download the **.safetensors**, **config.json** and **tokenizer.model** files from the original model's page on huggingface (So we don't have to clone the pytorch repo). On llama's repo, the tokenizer.model is inside the **original** folder.
+Download the **.safetensors** and **config.json** files from the original model's page on huggingface (So we don't have to clone the pytorch repo). For multimodal models (PHI3.5 Vision), we also need the CLIP **.config** [file](https://huggingface.co/openai/clip-vit-large-patch14-336/blob/main/config.json).
 
 Use the export.py script to convert the model bfloat16 weights into the LMRS format:
 
 ```properties
-python export.py --files [ordered .safetensor files] --config [model config.json] --save-path [name and path to save] --type [model type (GEMMA/LLAMA)]
+python export.py --files [ordered .safetensor files] --config [model config.json] --save-path [name and path to save] --type [model type (GEMMA/LLAMA/PHI)]
 ```
 
-To export the quantized version use the --quantize and --quantize-type flags. The int8 quantized model size should be 4X smaller (from ~9.8G to ~2.5G, depending on the group size).
+To export the quantized version use the **--quantize** and **--quantize-type** flags. The int8 quantized model size should be 4X smaller (from ~9.8G to ~2.5G, depending on the group size). For multimodal models include the **--vision-config** argument.
 
-Use the tokenizer.py script to convert the tokenizer.model sentencepiece tokenizer into the LMRS tokenizer format:
+Use the tokenizer.py script to convert the tokenizer model into the LMRS tokenizer format:
 
 ```properties
-python tokenizer.py --tokenizer-model [path to the tokenizer.model file] --tokenizer-type [type of the tokenizer (GEMMA/LLAMA)]
+python tokenizer.py --model-id [huggingface model_id] --tokenizer-type [type of the tokenizer (GEMMA/LLAMA/PHI)]
 ```
 
 ### Build
@@ -73,13 +73,15 @@ Compile the rust code with cargo (make sure to pass the target-cpu flag):
 RUSTFLAGS="-C target-cpu=native" cargo build --release --bin chat
 ```
 
+To enable multimodality, include the multimodal feature by passing the **--features multimodal** argument.
+
 And you are good to go:
 
 ```properties
 ./target/release/chat --model [model weights file]
 ```
 
-Other arguments include tokenizer, temperature, top-p, show-metrics etc. To check available arguments run with --help.
+Other arguments include tokenizer, temperature, top-p, show-metrics etc. To check available arguments run with --help. For multimodal models use the **--image** argument with the image path.
 
 ---
 
