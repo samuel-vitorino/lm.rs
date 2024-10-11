@@ -47,7 +47,7 @@ struct Args {
     seed: Option<u64>,
     #[arg(long, default_value_t = false)]
     multimodal: bool,
-    #[arg(long, default_value_t = 2)]
+    #[arg(long, default_value_t = 1)]
     num_crops: u32,
 }
 
@@ -59,9 +59,18 @@ struct ChatMessage {
 
 #[derive(Serialize)]
 struct ResponseMessage {
-    category: String,
+    category: MessageCategory,
     text: String,
 }
+
+#[derive(Serialize)]
+enum MessageCategory {
+    STATUS,
+    OUTPUT,
+    FEATURE
+}
+
+
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -88,6 +97,11 @@ async fn main() -> Result<()> {
             let ws_stream = accept_async(stream).await.expect("Failed to accept");
             let (mut write, mut read) = ws_stream.split();
 
+            let mut response = ResponseMessage {
+                category: MessageCategory::STATUS,
+                text: String::new(),
+            };
+
             let mut tokenizer = Tokenizer::new(tokenizer_path);
 
             let (mut model, _offset_transformer) = Transformer::new(&data);
@@ -111,6 +125,13 @@ async fn main() -> Result<()> {
                 vision_model = Some(vision_result.0);
                 let processor_result = PHI3VProcessor::new(&data[vision_result.1 + _offset_transformer..]);
                 processor = Some(processor_result);
+                
+                response.category = MessageCategory::FEATURE;
+                response.text = String::from("multimodal");
+
+                if write.send(serde_json::to_string(&response).unwrap().into()).await.is_err() {
+                    return;
+                }
             }
 
             let seed: u64;
@@ -128,12 +149,7 @@ async fn main() -> Result<()> {
 
             let mut sampler = Sampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
             let mut pos = 0;
-
-            let mut response = ResponseMessage {
-                category: String::new(),
-                text: String::new(),
-            };
-            
+ 
             while let Some(msg) = read.next().await {
                 let mut message_text: String = String::from("");
 
@@ -159,7 +175,7 @@ async fn main() -> Result<()> {
 
                                             let pixels: &[u8] = rgb_image.as_raw();
 
-                                            response.category = String::from("status");
+                                            response.category = MessageCategory::STATUS;
                                             response.text = String::from("Preprocessing the image");
 
                                             if write.send(serde_json::to_string(&response).unwrap().into()).await.is_err() {
@@ -168,7 +184,7 @@ async fn main() -> Result<()> {
 
                                             let (patches, w_crop, h_crop, num_crops_processed) = processor.process(pixels, width, height, vision_model.args.patch_size, args.num_crops);
 
-                                            response.category = String::from("status");
+                                            response.category = MessageCategory::STATUS;
                                             response.text = String::from("Encoding the image");
 
                                             if write.send(serde_json::to_string(&response).unwrap().into()).await.is_err() {
@@ -186,14 +202,14 @@ async fn main() -> Result<()> {
                                             prefix.extend(image_features);
                                             prefix.extend(suffix);
 
-                                            response.category = String::from("status");
+                                            response.category = MessageCategory::STATUS;
                                             response.text = String::from("Filling KV cache");
 
                                             if write.send(serde_json::to_string(&response).unwrap().into()).await.is_err() {
                                                 break;
                                             }
 
-                                            pos += model.fill_kv_cache(&mut prefix, 0);
+                                            pos += model.fill_kv_cache(&mut prefix, pos);
                                             image_pos += pos;
                                         }
                                     }
@@ -269,7 +285,7 @@ async fn main() -> Result<()> {
                     if user_idx >= num_prompt_tokens && next != tokenizer.eos && !(model.args.model_type == ModelType::GEMMA && next == 107) {
                         let piece = tokenizer.decode(next);
                         
-                        response.category = String::from("output");
+                        response.category = MessageCategory::OUTPUT;
                         response.text = piece;
 
                         if write.send(serde_json::to_string(&response).unwrap().into()).await.is_err() {
@@ -278,8 +294,8 @@ async fn main() -> Result<()> {
                     }   
                 } 
                 
-                response.category = String::from("end");
-                response.text = String::new();
+                response.category = MessageCategory::OUTPUT;
+                response.text = String::from("<eos>");
 
                 if write.send(serde_json::to_string(&response).unwrap().into()).await.is_err() {
                     break;

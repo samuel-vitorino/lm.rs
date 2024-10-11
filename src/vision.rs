@@ -5,6 +5,8 @@ use crate::functional::{matmul, matmul_q8, matmul_conv_q8, matmul_conv, concat, 
 use rayon::prelude::*;
 use wide::f32x8;
 use std::mem::MaybeUninit;
+use std::alloc::dealloc;
+use std::alloc::Layout;
 
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
@@ -569,5 +571,25 @@ impl<'a> VisionTransformer<'a> {
         }
          
         (out_patches, new_shape)
+    }
+}
+
+// Deallocate fields created with Box::leak
+impl<'a> Drop for VisionTransformer<'a> {
+    fn drop(&mut self) {
+        if self.args.q_type != QuantType::None {
+            unsafe {
+                let patch_weights_layout = Layout::array::<QuantizedTensor>(1).unwrap();
+                dealloc(self.weights.patch_embedding_quant.assume_init().as_ptr() as *mut u8, patch_weights_layout);
+                
+                let layer_weights_layout = Layout::array::<QuantizedTensor>(self.args.n_layers as usize).unwrap();
+                dealloc(self.weights.wq_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.wk_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.wv_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.wo_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.w1_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+                dealloc(self.weights.w2_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
+            }
+        }
     }
 }

@@ -3,6 +3,8 @@ use crate::transformer::{init_param, init_param_quant};
 use crate::functional::{matmul, matmul_q8, concat};
 
 use std::mem::MaybeUninit;
+use std::alloc::dealloc;
+use std::alloc::Layout;
 
 use image::imageops::resize;
 use image::{ImageBuffer, Rgb};
@@ -89,10 +91,12 @@ fn crop_img(img: &[u8], size: (u32, u32), num_crops: u32) -> Vec<u8> {
     let mut cropped_img: Vec<u8> = Vec::new();
     let crop_size = 336;
     let crops_per_side_x = size.0/crop_size;
-    let crops_per_side_y = size.1/crop_size;
+
+    println!("{:?}", size);
+    println!("{}", num_crops);
 
     for c in 0..num_crops {
-        let grid_y = c/crops_per_side_y;
+        let grid_y = c/crops_per_side_x;
         let grid_x = c%crops_per_side_x;
 
         for y in 0..crop_size {
@@ -344,13 +348,12 @@ impl<'a> PHI3VProcessor<'a> {
         let w_crop = new_w/336;
         let h_crop = new_h/336;
 
-        num_crops = w_crop + h_crop;
+        num_crops = w_crop*h_crop;
 
         if num_crops > 2 {
             cropped_img = crop_img(&transposed_image, (new_w, new_h), num_crops);
         } else {
             cropped_img = transposed_image;
-            num_crops = 1;
         }
 
         num_crops += 1;
@@ -438,7 +441,7 @@ impl<'a> PHI3VProcessor<'a> {
 
         scale -= 1.0;
 
-        let new_w = (scale * 336.0) as u32;
+        let mut new_w = (scale * 336.0) as u32;
         let mut new_h = (new_w as f32 / ratio) as u32;
 
         let img_buffer: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_raw(new_width, new_height, new_img).expect("Failed to create image");
@@ -447,7 +450,10 @@ impl<'a> PHI3VProcessor<'a> {
         (new_img, new_h) = PHI3VProcessor::padding_336(resized_img.as_raw() as &[u8], new_w, new_h);
 
         if trans {
-            new_img = transpose_img(&new_img, width, height);
+            new_img = transpose_img(&new_img, new_w, new_h);
+            let temp_w = new_w;
+            new_w = new_h;
+            new_h = temp_w;
         }
 
         (new_img, new_w, new_h)
@@ -466,6 +472,18 @@ impl<'a> PHI3VProcessor<'a> {
     fn add_image_newline(img: &mut Vec<f32>, separator: &[f32], h: usize, w: usize, dim: usize) {
         for i in 0..h {
             PHI3VProcessor::insert_slice_at_position(img, i*w*dim + i*dim + w*dim, separator);
+        }
+    }
+}
+
+impl<'a> Drop for PHI3VProcessor<'a> {
+    fn drop(&mut self) {
+        if self.args.q_type != QuantType::None {
+            unsafe {
+                let weights_layout = Layout::array::<QuantizedTensor>(1).unwrap();
+                dealloc(self.weights.img_projection0_quant.assume_init().as_ptr() as *mut u8, weights_layout);
+                dealloc(self.weights.img_projection1_quant.assume_init().as_ptr() as *mut u8, weights_layout);
+            }
         }
     }
 }

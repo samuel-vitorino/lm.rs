@@ -35,7 +35,7 @@ struct Args {
     show_metrics: bool,
     #[arg(long)]
     image: Option<String>,
-    #[arg(long, default_value_t = 2)]
+    #[arg(long, default_value_t = 1)]
     num_crops: u32,
 }
 
@@ -116,7 +116,7 @@ fn main() {
 
         println!("Filling KV Cache...\n");
 
-        pos = model.fill_kv_cache(&mut prefix, 0);
+        pos = model.fill_kv_cache(&mut prefix, pos);
         image_pos = pos;
     }
 
