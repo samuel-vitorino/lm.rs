@@ -194,6 +194,7 @@ pub fn matmul_q8(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
 pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, gs: usize) {
     let group_size = gs / 2;
     let n_simd = group_size / 8;
+    let rest = n_simd * 8;
 
     let mask_a = i32x8::new([0x0F; 8]);
     let mask_b = i32x8::new([0xF0; 8]);
@@ -203,6 +204,7 @@ pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
 
         *xout_elem = (0..=(n/2 - group_size)).step_by(group_size).map(|j| {
             let mut ival = i32x8::ZERO;
+            let mut sum: f32 = 0.0;
 
             for k in 0..n_simd {
                 let x_vec = i32x8::from(&x.q[j+k*8..j+k*8+8]);
@@ -218,38 +220,23 @@ pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
                 ival += x_b * w_b;
             }
 
-            (ival.reduce_add() as f32) * w.s[(ni + j) / group_size] * x.s[j / group_size]
-        }).sum();
-    });
-}
-
-pub fn matmul_conv_q8(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, gs: usize, patches_per_row: u32) {
-    let n_simd = gs / 8;
-    let rest = n_simd * 8;
-    let x_len = x.q.len();
-    
-    xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
-        let ni: usize = (i / (patches_per_row*patches_per_row) as usize) * n;
-        let x_idx = i*n % x_len;
-
-        *xout_elem = (0..=(n - gs)).step_by(gs).map(|j| {
-            let mut ival = i32x8::ZERO;
-            let mut sum: f32 = 0.0;
-
-            for k in 0..n_simd {
-                let x_vec = i32x8::from(&x.q[x_idx+j+k*8..x_idx+j+k*8+8]);
-                let w_vec = i32x8::from(&w.q[ni+j+k*8..ni+j+k*8+8]);
-
-                ival += x_vec * w_vec;
-            }
-
             sum += ival.reduce_add() as f32;
-            
-            for r in rest..gs {
-                sum += (x.q[x_idx+j+r] as i32 * w.q[ni+j+r] as i32) as f32;
-            }
 
-            sum *= w.s[(ni + j) / gs] * x.s[(x_idx+j) / gs];
+            for r in rest..group_size {
+                let x_vec = x.q[j+r] as i32;
+                let w_vec = w.q[ni+j+r] as i32;
+
+                let x_a = (x_vec & 0x0F) - 8;
+                let w_a = (w_vec & 0x0F) - 8;
+                
+                let x_b = (0x0F & ((x_vec & 0xF0) >> 4)) - 8;
+                let w_b = (0x0F & ((w_vec & 0xF0) >> 4)) - 8;
+
+                sum += (x_a * w_a) as f32;
+                sum += (x_b * w_b) as f32;
+            }
+            
+            sum *= w.s[(ni + j) / group_size] * x.s[j / group_size];
 
             sum
         }).sum();

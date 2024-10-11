@@ -148,7 +148,7 @@ if __name__ == "__main__":
             # CLIP encoder
 
             ew.extend(write_tensors_by_group(files, "class_embedding", out_file, m_type="model.vision_embed_tokens"))
-            ew.extend(write_tensors_by_group(files, "patch_embedding.weight", out_file, m_type="model.vision_embed_tokens", quantize_type=quantize_type, group_size=196))
+            ew.extend(write_tensors_by_group(files, "patch_embedding.weight", out_file, m_type="model.vision_embed_tokens"))
             ew.extend(write_tensors_by_group(files, "position_embedding.weight", out_file, m_type="model.vision_embed_tokens"))
             ew.extend(write_tensors_by_group(files, "layer_norm1.weight", out_file, m_type="model.vision_embed_tokens"))
             ew.extend(write_tensors_by_group(files, "layer_norm1.bias", out_file, m_type="model.vision_embed_tokens"))

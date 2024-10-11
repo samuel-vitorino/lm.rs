@@ -1,6 +1,6 @@
-use crate::quantization::{QuantizedTensor, QuantType, MutableQuantizedTensor, quantize};
+use crate::quantization::{QuantizedTensor, QuantType, MutableQuantizedTensor, quantize, quantize_q4};
 use crate::transformer::{init_param, init_param_quant};
-use crate::functional::{matmul, matmul_q8, concat};
+use crate::functional::{matmul, matmul_q8, matmul_q4, concat};
 
 use std::mem::MaybeUninit;
 use std::alloc::dealloc;
@@ -273,7 +273,11 @@ impl<'a> PHI3VProcessor<'a> {
                         quantize(&mut sxq, &out_embeddings[((h as u32*hidden_dim)) as usize..((h as u32*hidden_dim) + hidden_dim) as usize], hidden_dim as usize, p.group_size);
                         
                         matmul_q8(&mut hidden_emb, &sxq, &w.img_projection0_quant.assume_init()[0], hidden_dim as usize, p.group_size as usize);
-                    } 
+                    } else if p.q_type == QuantType::Q4_0 {
+                        quantize_q4(&mut sxq, &out_embeddings[((h as u32*hidden_dim)) as usize..((h as u32*hidden_dim) + hidden_dim) as usize], hidden_dim as usize, p.group_size);
+                        
+                        matmul_q4(&mut hidden_emb, &sxq, &w.img_projection0_quant.assume_init()[0], hidden_dim as usize, p.group_size as usize);
+                    }
                 }
             }
             
@@ -309,7 +313,11 @@ impl<'a> PHI3VProcessor<'a> {
                         quantize(&mut sxq, &hidden_emb, p.text_dim as usize, p.group_size);
                         
                         matmul_q8(xb, &sxq, &w.img_projection1_quant.assume_init()[0], p.text_dim as usize, p.group_size as usize);
-                    } 
+                    } else if p.q_type == QuantType::Q4_0 {
+                        quantize_q4(&mut sxq, &hidden_emb, p.text_dim as usize, p.group_size);
+                        
+                        matmul_q4(xb, &sxq, &w.img_projection1_quant.assume_init()[0], p.text_dim as usize, p.group_size as usize);
+                    }
                 }
             }
 
