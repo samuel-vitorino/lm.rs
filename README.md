@@ -92,13 +92,15 @@ To run the backend for the [WebUI](https://github.com/samuel-vitorino/lm.rs-webu
 RUSTFLAGS="-C target-cpu=native" cargo build --release --features backend --bin backend
 ```
 
+For multimodality enable the **backend-multimodal** feature.
+
 Then run:
 
 ```properties
 ./target/release/backend --model [model weights file]
 ```
 
-You can change the ip and port with --ip and --port. Other flags such as temperature, etc. are also available. You can now connect via the web interface.
+You can change the ip and port with --ip and --port. Other flags such as temperature, etc. are also available. For multimodal compatibility use the **--multimodal** flag. You can now connect via the web interface.
 
 ## TODOs
 
