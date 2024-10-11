@@ -275,10 +275,10 @@ pub fn matmul_conv(xout: &mut [f32], x: &[f32], w: &[f32], n: usize, patches_per
             val += x_vec * w_vec;
         }
 
-        sum += val.reduce_add() as f32;
+        sum += val.reduce_add();
         
         for r in rest..n {
-            sum += (x[x_idx+r] * w[ni+r]) as f32;
+            sum += x[x_idx+r] * w[ni+r];
         }
 
         *xout_elem = sum;

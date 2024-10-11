@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 backend = ["dep:tokio-tungstenite", "dep:futures-util", "dep:tokio"]
+backend-multimodal = ["dep:base64", "dep:image", "dep:serde_json", "dep:serde"]
 multimodal = ["dep:image"]
 
 [dependencies]
@@ -19,6 +20,9 @@ image = { version = "0.25.2", optional = true }
 tokio-tungstenite = { version = "0.23.1", optional = true }
 futures-util = { version = "0.3.28", default-features = false, features = ["sink", "std"], optional = true }
 tokio = { version = "1.0.0", features = ["full"], optional = true }
+base64 = { version = "0.22.1", optional = true }
+serde_json = { version = "1.0.128", optional = true }
+serde = { version = "1.0.210", features = ["derive"], optional = true }
 
 [[bin]]
 name = "backend"

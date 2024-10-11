@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser.add_argument('--quantize', action='store_true', default=False, help='use quantization')
     parser.add_argument('--quantize-type', type=int, default=1, help='type of quantization - 1 for Q8_0, 2 for Q4_0')
     parser.add_argument('--group-size', type=int, default=128, help='groups to use in quantization')
-    parser.add_argument('--type', type=str, required=True, choices=model_types, help='groups to use in quantization')
+    parser.add_argument('--type', type=str, required=True, choices=model_types, help='model type')
     parser.add_argument('--vision-config', type=str, required=False, help='path to the vision model config')
 
     version = 4

@@ -18,7 +18,7 @@ lm.rs: run inference on Language Models locally on the CPU with Rust
 
 **🌃 Now supporting multimodality with PHI-3.5-vision model! PHI-3.5-mini text-only model also now supported.**
 
-Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models, and more recently the option to use images with PHI-3.5.
+Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models, and more recently the option to use images with PHI-3.5. Image processing/encoding currently takes a bit, so it slows the first response, working on optimization now.
 
 Disclaimer: some of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
@@ -54,7 +54,7 @@ Download the **.safetensors** and **config.json** files from the original model'
 Use the export.py script to convert the model bfloat16 weights into the LMRS format:
 
 ```properties
-python export.py --files [ordered .safetensor files] --config [model config.json] --save-path [name and path to save] --type [model type (GEMMA/LLAMA)]
+python export.py --files [ordered .safetensor files] --config [model config.json] --save-path [name and path to save] --type [model type (GEMMA/LLAMA/PHI)]
 ```
 
 To export the quantized version use the **--quantize** and **--quantize-type** flags. The int8 quantized model size should be 4X smaller (from ~9.8G to ~2.5G, depending on the group size). For multimodal models include the **--vision-config** argument.
