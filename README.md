@@ -39,7 +39,7 @@ Some benchmarks and download links for the models and tokenizers. I recommend us
 
 ## Instructions
 
-You can download the prepared quantized model and tokenizer model files in the lmrs format from huggingface. If you'd prefer to convert the models published by Google/Meta on huggingface yourself, please refer to the following section. Otherwise, you can skip ahead to the build section.
+You can download the prepared quantized model and tokenizer model files in the lmrs format from Hugging Face. If you'd prefer to convert the models published by Google/Meta on Hugging Face yourself, please refer to the following section. Otherwise, you can skip ahead to the build section.
 
 ### Model Conversion
 
@@ -49,7 +49,7 @@ Install additional python dependencies (assuming you already have pytorch instal
 pip install -r requirements.txt
 ```
 
-Download the **.safetensors**, **config.json** and **tokenizer.model** files from the original model's page on huggingface (So we don't have to clone the pytorch repo). On llama's repo, the tokenizer.model is inside the **original** folder.
+Download the **.safetensors**, **config.json** and **tokenizer.model** files from the original model's page on Hugging Face (So we don't have to clone the pytorch repo). On llama's repo, the tokenizer.model is inside the **original** folder.
 
 Use the export.py script to convert the model bfloat16 weights into the LMRS format:
 
