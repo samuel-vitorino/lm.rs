@@ -54,6 +54,7 @@ struct Args {
 
 #[derive(Deserialize)]
 struct ChatMessage {
+    #[cfg(feature = "backend-multimodal")]
     image: Option<String>, // Base64-encoded image, optional
     text: String,          // Text prompt
 }
@@ -68,6 +69,7 @@ struct ResponseMessage {
 enum MessageCategory {
     STATUS,
     OUTPUT,
+    #[cfg(feature = "backend-multimodal")]
     FEATURE
 }
 
