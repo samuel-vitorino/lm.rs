@@ -7,6 +7,7 @@ use tokio_tungstenite::tungstenite::Message;
 #[cfg(feature = "backend-multimodal")]
 use image::ImageReader;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "backend-multimodal")]
 use base64::prelude::*;
 
 use lmrs::transformer::Transformer;

@@ -5,9 +5,9 @@ edition = "2021"
 
 [features]
 default = []
-backend = ["dep:tokio-tungstenite", "dep:futures-util", "dep:tokio"]
+backend = ["dep:tokio-tungstenite", "dep:futures-util", "dep:tokio", "dep:serde_json", "dep:serde"]
 desktop = ["dep:dioxus", "dep:dioxus-desktop", "dep:pulldown-cmark"]
-backend-multimodal = ["dep:base64", "dep:image", "dep:serde_json", "dep:serde"]
+backend-multimodal = ["dep:base64", "dep:image"]
 multimodal = ["dep:image"]
 
 [dependencies]
