@@ -162,32 +162,40 @@ pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32]) {
 
 pub fn matmul_q8(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, gs: usize) {
     let n_simd = gs / 8;
-    let rest = n_simd * 8;
     
-    xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
-        let ni: usize = i * n;
+    xout.par_chunks_mut(4).enumerate().for_each(|(i, xout_elem)| {
+        let new_i = i*4;
+        let ni0: usize = new_i * n;
+        let ni1: usize = (new_i + 1) * n;
+        let ni2: usize = (new_i + 2) * n;
+        let ni3: usize = (new_i + 3) * n;
 
-        *xout_elem = (0..=(n - gs)).step_by(gs).map(|j| {
-            let mut ival = i32x8::ZERO;
-            let mut sum: f32 = 0.0;
+        xout_elem.iter_mut().for_each(|m| *m = 0.0);
+
+        for j in (0..=(n - gs)).step_by(gs) {
+            let mut ival0 = i32x8::ZERO;
+            let mut ival1 = i32x8::ZERO;
+            let mut ival2 = i32x8::ZERO;
+            let mut ival3 = i32x8::ZERO;
 
             for k in 0..n_simd {
                 let x_vec = i32x8::from(&x.q[j+k*8..j+k*8+8]);
-                let w_vec = i32x8::from(&w.q[ni+j+k*8..ni+j+k*8+8]);
+                let w_vec0 = i32x8::from(&w.q[ni0+j+k*8..ni0+j+k*8+8]);
+                let w_vec1 = i32x8::from(&w.q[ni1+j+k*8..ni1+j+k*8+8]);
+                let w_vec2 = i32x8::from(&w.q[ni2+j+k*8..ni2+j+k*8+8]);
+                let w_vec3 = i32x8::from(&w.q[ni3+j+k*8..ni3+j+k*8+8]);
 
-                ival += x_vec * w_vec;
+                ival0 += x_vec * w_vec0;
+                ival1 += x_vec * w_vec1;
+                ival2 += x_vec * w_vec2;
+                ival3 += x_vec * w_vec3;
             }
 
-            sum += ival.reduce_add() as f32;
-            
-            for r in rest..gs {
-                sum += (x.q[j+r] as i32 * w.q[ni+j+r] as i32) as f32;
-            }
-            
-            sum *= w.s[(ni + j) / gs] * x.s[j / gs];
-
-            sum
-        }).sum();
+            xout_elem[0] += (ival0.reduce_add() as f32) * w.s[(ni0 + j) / gs] * x.s[j / gs];
+            xout_elem[1] += (ival1.reduce_add() as f32) * w.s[(ni1 + j) / gs] * x.s[j / gs];
+            xout_elem[2] += (ival2.reduce_add() as f32) * w.s[(ni2 + j) / gs] * x.s[j / gs];
+            xout_elem[3] += (ival3.reduce_add() as f32) * w.s[(ni3 + j) / gs] * x.s[j / gs];
+        }
     });
 }
 
