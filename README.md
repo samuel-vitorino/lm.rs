@@ -20,9 +20,9 @@ lm.rs: run inference on Language Models locally on the CPU with Rust
 
 Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU without ML libraries. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models, and more recently the option to use images with PHI-3.5.
 
-**News:** Implemented batch processing, boosting the image encoding time by up to ~3x. Llama 3.2 1B now runs at 50 tok/s on my 16-core machine.
+**News:** Implemented batch processing, boosting the image encoding speed by up to ~3x. Llama 3.2 1B now runs at 50 tok/s on my 16-core machine.
 
-**Disclaimer:** some of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
+**Disclaimer:** Some of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
 ## Prepared models
 
