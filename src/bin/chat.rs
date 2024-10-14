@@ -25,7 +25,7 @@ struct Args {
     model: String,
     #[arg(long, default_value_t = String::from("tokenizer.bin"))]
     tokenizer: String,
-    #[arg(long, default_value_t = 1.0f32)]
+    #[arg(long, default_value_t = 0.7f32)]
     temperature: f32,
     #[arg(long, default_value_t = 0.9f32)]
     top_p: f32,
