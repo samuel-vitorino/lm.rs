@@ -1,6 +1,6 @@
 use crate::quantization::{QuantizedTensor, MutableQuantizedTensor, QuantType, quantize, quantize_q4};
 use crate::transformer::{init_param, init_param_quant};
-use crate::functional::{matmul, matmul_q8, matmul_q4, matmul_conv, concat, layernorm, softmax};
+use crate::functional::{matmul, matmul_rest, matmul_q8, matmul_q4, matmul_conv, concat, layernorm, softmax};
 
 use rayon::prelude::*;
 use wide::f32x8;
@@ -292,10 +292,9 @@ impl<'a> VisionTransformer<'a> {
         let mut norm_embeddings = vec![0.0; embeddings.len()];
         
         for i in 0..num_crops {
-            for k in 0..n_patches {
-                layernorm(&mut norm_embeddings[(i*out_shape+k*dim) as usize..(i*out_shape+k*dim + p.dim) as usize], 
-                    &embeddings[(i*out_shape+k*dim) as usize..(i*out_shape+k*dim + p.dim) as usize], w.pre_layer_norm, w.pre_layer_norm_bias, dim as usize, p.layernorm_eps);
-            }
+            norm_embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut(dim as usize).enumerate().for_each( |(k, nemb)| {
+                layernorm(nemb, &embeddings[(i*out_shape+k as u32*dim) as usize..(i*out_shape+k as u32*dim + p.dim) as usize], w.pre_layer_norm, w.pre_layer_norm_bias, dim as usize, p.layernorm_eps);
+            });
         }
         
         let mut qkv: Vec<f32> = vec![0.0; (norm_embeddings.len() * 3) as usize];
@@ -305,10 +304,9 @@ impl<'a> VisionTransformer<'a> {
             let mut x = norm_embeddings.clone();
             
             for i in 0..num_crops {
-                for k in 0..n_patches {
-                    layernorm(&mut embeddings[(i*out_shape+k*dim) as usize..(i*out_shape+k*dim + p.dim) as usize], 
-                        &norm_embeddings[(i*out_shape+k*dim) as usize..(i*out_shape+k*dim + p.dim) as usize], &w.layer_norm1[(l*dim) as usize..(l*dim + dim) as usize], &w.layer_norm1_bias[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.layernorm_eps);
-                }
+                embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut(dim as usize).enumerate().for_each( |(k, emb)| {
+                    layernorm(emb, &norm_embeddings[(i*out_shape+k as u32*dim) as usize..(i*out_shape+k as u32*dim + p.dim) as usize], &w.layer_norm1[(l*dim) as usize..(l*dim + dim) as usize], &w.layer_norm1_bias[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.layernorm_eps);
+                });
             }
 
             for i in 0..num_crops {
@@ -381,7 +379,7 @@ impl<'a> VisionTransformer<'a> {
             for i in 0..num_crops {
                 att[(i*att_size) as usize..(i*att_size + att_size) as usize].par_chunks_mut((n_patches) as usize).enumerate().for_each( |(h, xb)| {
                     let curr_head = h as u32 / n_patches;
-                    matmul(xb, &q[(i*out_shape + (h as u32 * head_size)) as usize..(i*out_shape + (h as u32 * head_size) + head_size) as usize], &k[(i*out_shape + (curr_head*head_size*n_patches)) as usize..((i*out_shape) + (curr_head*head_size*n_patches) + head_size*n_patches) as usize], head_size as usize, n_patches as usize);
+                    matmul_rest(xb, &q[(i*out_shape + (h as u32 * head_size)) as usize..(i*out_shape + (h as u32 * head_size) + head_size) as usize], &k[(i*out_shape + (curr_head*head_size*n_patches)) as usize..((i*out_shape) + (curr_head*head_size*n_patches) + head_size*n_patches) as usize], head_size as usize, n_patches as usize);
                 })
             }
 
@@ -398,7 +396,7 @@ impl<'a> VisionTransformer<'a> {
             for i in 0..num_crops {
                 embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut((head_size) as usize).enumerate().for_each( |(h, xb)| {
                     let curr_head = h as u32 / n_patches;
-                    matmul(xb, &att[(i*att_size + (h as u32 * n_patches)) as usize..(i*att_size + (h as u32 * n_patches) + n_patches) as usize], &v[(i*out_shape + curr_head*n_patches*head_size) as usize..((i*out_shape + curr_head*n_patches*head_size) + n_patches*head_size) as usize], n_patches as usize, head_size as usize);
+                    matmul_rest(xb, &att[(i*att_size + (h as u32 * n_patches)) as usize..(i*att_size + (h as u32 * n_patches) + n_patches) as usize], &v[(i*out_shape + curr_head*n_patches*head_size) as usize..((i*out_shape + curr_head*n_patches*head_size) + n_patches*head_size) as usize], n_patches as usize, head_size as usize);
                 })
             }
             
@@ -466,10 +464,9 @@ impl<'a> VisionTransformer<'a> {
             x.copy_from_slice(&embeddings);
             
             for i in 0..num_crops {
-                for k in 0..n_patches {
-                    layernorm(&mut norm_embeddings[(i*out_shape+k*dim) as usize..(i*out_shape+k*dim + p.dim) as usize], 
-                        &embeddings[(i*out_shape+k*dim) as usize..(i*out_shape+k*dim + p.dim) as usize], &w.layer_norm2[(l*dim) as usize..(l*dim + dim) as usize], &w.layer_norm2_bias[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.layernorm_eps);
-                }
+                norm_embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut(dim as usize).enumerate().for_each( |(k, nemb)| {
+                    layernorm(nemb, &embeddings[(i*out_shape+k as u32*dim) as usize..(i*out_shape+k as u32*dim + p.dim) as usize], &w.layer_norm2[(l*dim) as usize..(l*dim + dim) as usize], &w.layer_norm2_bias[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.layernorm_eps);
+                });
             }
             
             // MLP with QuickGELU activation w2(QuickGELU(w1(x)))
