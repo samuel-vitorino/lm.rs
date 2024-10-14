@@ -142,10 +142,10 @@ pub fn softmax(x: &mut [f32]){
 pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32], n: usize, o: usize) {
     let n_simd = n / 8;
 
-    xout.par_chunks_mut(o).enumerate().for_each(|(j, elem)| {
+    xout.par_chunks_exact_mut(o).enumerate().for_each(|(j, elem)| {
         let xi = j*n;
 
-        elem.par_chunks_mut(4).enumerate().for_each(|(i, xout_elem)| {
+        elem.par_chunks_exact_mut(4).enumerate().for_each(|(i, xout_elem)| {
             let new_i = i*4;
             let ni0: usize = new_i * n;
             let ni1: usize = (new_i + 1) * n;
@@ -173,10 +173,10 @@ pub fn matmul(xout: &mut [f32], x: &[f32], w: &[f32], n: usize, o: usize) {
 pub fn matmul_q8(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTensor, n: usize, o: usize, gs: usize) {
     let n_simd = gs / 8;
     
-    xout.par_chunks_mut(o).enumerate().for_each(|(j, elem)| {
+    xout.par_chunks_exact_mut(o).enumerate().for_each(|(j, elem)| {
         let xi = j*n;
 
-        elem.par_chunks_mut(4).enumerate().for_each(|(i, xout_elem)| { 
+        elem.par_chunks_exact_mut(4).enumerate().for_each(|(i, xout_elem)| { 
             let new_i = i*4;
             let ni0: usize = new_i * n;
             let ni1: usize = (new_i + 1) * n;
@@ -220,7 +220,7 @@ pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
     let mask_a = i32x8::new([0x0F; 8]);
     let mask_b = i32x8::new([0xF0; 8]);
     
-    xout.par_chunks_mut(o).enumerate().for_each(|(j, elem)| {
+    xout.par_chunks_exact_mut(o).enumerate().for_each(|(j, elem)| {
         let xi = j*n;
         
         elem.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
@@ -283,7 +283,7 @@ pub fn matmul_rest(xout: &mut [f32], x: &[f32], w: &[f32], n: usize, o: usize) {
     
     let rest = n_simd * 8;
 
-    xout.par_chunks_mut(o).enumerate().for_each(|(j, elem)| {
+    xout.par_chunks_exact_mut(o).enumerate().for_each(|(j, elem)| {
         let xi = j*n;
 
         elem.par_iter_mut().enumerate().for_each(|(i, val)| {

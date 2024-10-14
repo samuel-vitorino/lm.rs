@@ -495,7 +495,7 @@ impl<'a> Transformer<'a> {
         });
 
         if att_dim > dim {
-            embeddings.extend(vec![0.0; ((att_dim - dim)*sl) as usize])
+            embeddings.extend(vec![0.0; ((att_dim - dim)*sl) as usize]);
         }
         
         embeddings.par_chunks_exact_mut(att_dim as usize).enumerate().for_each( |(i, elem)| {
