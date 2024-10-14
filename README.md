@@ -20,7 +20,7 @@ lm.rs: run inference on Language Models locally on the CPU with Rust
 
 Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU without ML libraries. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models, and more recently the option to use images with PHI-3.5.
 
-**News:** Implemented batch processing, boosting the image encoding time by up to ~3x. Llama 3.2 1B now runs at 45 tok/s on my 16-core machine.
+**News:** Implemented batch processing, boosting the image encoding time by up to ~3x. Llama 3.2 1B now runs at 50 tok/s on my 16-core machine.
 
 **Disclaimer:** some of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
@@ -31,14 +31,14 @@ Some benchmarks and download links for the models and tokenizers. I recommend us
 |        Model       | Size | Speed |
 | ------------------ | ------------- | ------------- |
 | [Gemma 2 2B IT Q4_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q4_0-LMRS) | 1.39G          | 20 tok/s |
-| [Gemma 2 2B IT Q8_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q8_0-LMRS) | 2.66GB  | 21 tok/s |
+| [Gemma 2 2B IT Q8_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q8_0-LMRS) | 2.66GB  | 24 tok/s |
 | [Gemma 2 9B IT Q4_0](https://huggingface.co/samuel-vitorino/gemma2-9b-it-q4_0-LMRS) | 4.91GB  | 7 tok/s  | 
 | [Gemma 2 9B IT Q8_0](https://huggingface.co/samuel-vitorino/gemma2-9b-it-q8_0-LMRS) | 9.53GB | 8 tok/s  |
 | [Llama 3.2 1B IT](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-LMRS) | 4.94GB  | 21 tok/s  | 
-| [Llama 3.2 1B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-Q8_0-LMRS) | 1.27GB | 45 tok/s  |
+| [Llama 3.2 1B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-Q8_0-LMRS) | 1.27GB | 50 tok/s  |
 | [Llama 3.2 3B IT Q4_0](https://huggingface.co/samuel-vitorino/Llama-3.2-3B-Instruct-Q4_0-LMRS) | 1.71GB  | 17 tok/s  | 
 | [Llama 3.2 3B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-3B-Instruct-Q8_0-LMRS) | 3.31GB | 19 tok/s  |
-| [PHI 3.5 IT Vision Q8_0](https://huggingface.co/samuel-vitorino/Phi-3.5-vision-instruct-q8_0-LMRS) | 4.28GB | 15 tok/s  |
+| [PHI 3.5 IT Vision Q8_0](https://huggingface.co/samuel-vitorino/Phi-3.5-vision-instruct-q8_0-LMRS) | 4.28GB | 17 tok/s  |
 | [PHI 3.5 IT Mini Q8_0](https://huggingface.co/samuel-vitorino/Phi-3.5-mini-instruct-q8_0-LMRS) | 3.94GB | 18 tok/s  |
 
 ## Instructions
