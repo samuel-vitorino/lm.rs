@@ -18,9 +18,11 @@ lm.rs: run inference on Language Models locally on the CPU with Rust
 
 **🌃 Now supporting multimodality with PHI-3.5-vision model! PHI-3.5-mini text-only model also now supported.**
 
-Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU without ML libraries. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models, and more recently the option to use images with PHI-3.5. Image processing/encoding currently takes a bit, so it slows the first response, working on optimization now.
+Inspired by Karpathy's [llama2.c](https://github.com/karpathy/llama2.c) and [llm.c](https://github.com/karpathy/llm.c) I decided to create the most minimal code (not so minimal atm) that can perform full inference on Language Models on the CPU without ML libraries. Previously only Google's Gemma 2 models were supported, but I decided to add support for the new Llama 3.2 models, and more recently the option to use images with PHI-3.5.
 
-Disclaimer: some of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
+**News:** Implemented batch processing, boosting the image encoding time by up to ~3x. Llama 3.2 1B now runs at 45 tok/s on my 16-core machine.
+
+**Disclaimer:** some of the code could be optimized and improved. This is just an excuse for me to write Rust for the first time. Isn't it incredible that in a few years, we could have AGI running in a few lines of poorly written Rust code?
 
 ## Prepared models
 
@@ -35,9 +37,9 @@ Some benchmarks and download links for the models and tokenizers. I recommend us
 | [Llama 3.2 1B IT](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-LMRS) | 4.94GB  | 21 tok/s  | 
 | [Llama 3.2 1B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-Q8_0-LMRS) | 1.27GB | 45 tok/s  |
 | [Llama 3.2 3B IT Q4_0](https://huggingface.co/samuel-vitorino/Llama-3.2-3B-Instruct-Q4_0-LMRS) | 1.71GB  | 17 tok/s  | 
-| [Llama 3.2 3B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-3B-Instruct-Q8_0-LMRS) | 3.31GB | 16 tok/s  |
+| [Llama 3.2 3B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-3B-Instruct-Q8_0-LMRS) | 3.31GB | 19 tok/s  |
 | [PHI 3.5 IT Vision Q8_0](https://huggingface.co/samuel-vitorino/Phi-3.5-vision-instruct-q8_0-LMRS) | 4.28GB | 15 tok/s  |
-| [PHI 3.5 IT Mini Q8_0](https://huggingface.co/samuel-vitorino/Phi-3.5-mini-instruct-q8_0-LMRS) | 3.94GB | 16 tok/s  |
+| [PHI 3.5 IT Mini Q8_0](https://huggingface.co/samuel-vitorino/Phi-3.5-mini-instruct-q8_0-LMRS) | 3.94GB | 18 tok/s  |
 
 ## Instructions
 
@@ -83,7 +85,7 @@ And you are good to go:
 ./target/release/chat --model [model weights file]
 ```
 
-Other arguments include tokenizer, temperature, top-p, show-metrics etc. To check available arguments run with --help. For multimodal models use the **--image** argument with the image path.
+Other arguments include tokenizer, temperature, top-p, show-metrics etc. To check available arguments run with --help. For multimodal models use the **--image** argument with the image path. When using PHI3.5-vision I recommend using a temperature of 0.
 
 ---
 
