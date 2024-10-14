@@ -6,7 +6,6 @@ use crate::functional::matmul;
 use crate::functional::matmul_q4;
 use crate::functional::matmul_q8;
 use crate::functional::softmax;
-
 use crate::quantization::*;
 
 use memmap2::Mmap;
@@ -117,14 +116,7 @@ pub struct TransformerWeights<'a> {
 pub struct TransformerState<'a>
 {
     xb: Vec<f32>,
-    xb2: Vec<f32>, 
-    xb3: Vec<f32>, 
-    hb: Vec<f32>,
-    hb2: Vec<f32>,
-    q: Vec<f32>,
     xq: MaybeUninit<MutableQuantizedTensor<'a>>,
-    xq1: MaybeUninit<MutableQuantizedTensor<'a>>,
-    hq: MaybeUninit<MutableQuantizedTensor<'a>>,
     logits: Vec<f32>, 
 
     // kv cache
@@ -231,14 +223,7 @@ impl<'a> Transformer<'a> {
 
             let state = TransformerState {
                 xb: vec![0.0; cfg.dim as usize],
-                xb2: vec![0.0; cfg.dim as usize],
-                xb3: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
-                hb: vec![0.0; cfg.hidden_dim as usize],
-                hb2: vec![0.0; cfg.hidden_dim as usize],
-                q: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
                 xq: MaybeUninit::uninit(),
-                xq1: MaybeUninit::uninit(),
-                hq: MaybeUninit::uninit(),
                 key_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
                 value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
                 logits: vec![0.0; cfg.vocab_size as usize],
@@ -313,14 +298,7 @@ impl<'a> Transformer<'a> {
 
         let state = TransformerState {
             xb: vec![0.0; cfg.dim as usize],
-            xb2: vec![0.0; cfg.dim as usize],
-            xb3: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
-            hb: vec![0.0; cfg.hidden_dim as usize],
-            hb2: vec![0.0; cfg.hidden_dim as usize],
-            q: vec![0.0; (cfg.head_size*cfg.n_heads) as usize],
             xq: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.dim) as usize].into_boxed_slice())}),
-            xq1: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.head_size*cfg.n_heads) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.head_size*cfg.n_heads) as usize].into_boxed_slice())}),
-            hq: MaybeUninit::new(MutableQuantizedTensor { q: Box::leak(vec![0; (cfg.hidden_dim) as usize].into_boxed_slice()), s: Box::leak(vec![0.0; (cfg.hidden_dim) as usize].into_boxed_slice())}),
             key_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
             value_cache: vec![0.0; (cfg.n_layers * cfg.seq_len * kv_dim) as usize],
             logits: vec![0.0; cfg.vocab_size as usize],
@@ -354,9 +332,9 @@ impl<'a> Transformer<'a> {
         }
 
         for l in 0..p.n_layers {
-            self.forward_layer(x, l, pos);
+            self.forward_layer(x, 1, l, pos);
         }
-        
+
         let s = &mut self.state;
         let w = &self.weights;
         
@@ -367,9 +345,9 @@ impl<'a> Transformer<'a> {
         unsafe {
             if !quantized {
                 if p.model_type != ModelType::PHI {
-                    matmul(&mut s.logits, x, w.w_cls.assume_init());
+                    matmul(&mut s.logits, x, w.w_cls.assume_init(), dim as usize, p.vocab_size as usize);
                 } else {
-                    matmul(&mut s.logits, x, w.lm_head.assume_init());
+                    matmul(&mut s.logits, x, w.lm_head.assume_init(), dim as usize, p.vocab_size as usize);
                 }
             } else {
                 let sxq = &mut *s.xq.as_mut_ptr();
@@ -378,17 +356,17 @@ impl<'a> Transformer<'a> {
                     quantize(sxq, x, dim as usize, gs);
                     
                     if p.model_type != ModelType::PHI {
-                        matmul_q8(&mut s.logits, sxq, &w.w_cls_quant.assume_init()[0], dim as usize, gs as usize);
+                        matmul_q8(&mut s.logits, sxq, &w.w_cls_quant.assume_init()[0], dim as usize, p.vocab_size as usize, gs as usize);
                     } else {
-                        matmul_q8(&mut s.logits, sxq, &w.lm_head_quant.assume_init()[0], dim as usize, gs as usize);
+                        matmul_q8(&mut s.logits, sxq, &w.lm_head_quant.assume_init()[0], dim as usize, p.vocab_size as usize, gs as usize);
                     }
                 } else if p.q_type == QuantType::Q4_0 {
                     quantize_q4(sxq, x, dim as usize, gs);
 
                     if p.model_type != ModelType::PHI {
-                        matmul_q4(&mut s.logits, sxq, &w.w_cls_quant.assume_init()[0], dim as usize, gs as usize);
+                        matmul_q4(&mut s.logits, sxq, &w.w_cls_quant.assume_init()[0], dim as usize, p.vocab_size as usize, gs as usize);
                     } else {
-                        matmul_q4(&mut s.logits, sxq, &w.lm_head_quant.assume_init()[0], dim as usize, gs as usize);
+                        matmul_q4(&mut s.logits, sxq, &w.lm_head_quant.assume_init()[0], dim as usize, p.vocab_size as usize, gs as usize);
                     }
                 }
             }
@@ -405,7 +383,9 @@ impl<'a> Transformer<'a> {
         &mut s.logits
     }
 
-    fn forward_layer(&mut self, x: &mut [f32], l: u32, pos: u32) {
+    // x -> (T, D)
+    // sl -> T
+    fn forward_layer(&mut self, x: &mut [f32], sl: u32, l: u32, pos: u32) {
         let p = self.args;
         let w = &self.weights;
         let s = &mut self.state;
@@ -418,167 +398,183 @@ impl<'a> Transformer<'a> {
         let gs = p.group_size;
 
         let quantized = p.q_type != QuantType::None;
+        let total_shape: usize = (sl*p.dim) as usize;
+        let total_shape_hidden: usize = (sl*p.hidden_dim) as usize;
 
-        rmsnorm(&mut s.xb, x, &w.w_rms_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
+        let mut embeddings = x.to_vec();
+        let mut temp_embeddings = vec![0.0; total_shape];
+        let mut hidden_embeddings = vec![0.0; total_shape_hidden];
+        let mut temp_hidden_embeddings = vec![0.0; total_shape_hidden];
+
+        embeddings.par_chunks_mut(dim as usize).enumerate().for_each( |(i, xb)| {
+            rmsnorm(xb, &x[i*dim as usize..i*dim as usize + dim as usize], &w.w_rms_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
+        });
         
         let loff = l * p.seq_len * kv_dim; 
-        let k = &mut s.key_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
-        let v = &mut s.value_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim) as usize];
-        
+        let mut sq = vec![0.0; (att_dim * sl) as usize];
+        let k = &mut s.key_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim*sl) as usize];
+        let v = &mut s.value_cache[(loff + pos * kv_dim) as usize..(loff + pos * kv_dim + kv_dim*sl) as usize];
+
         unsafe {
             if !quantized {
-                matmul(&mut s.q, &s.xb, &w.wq.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
-                matmul(k, &s.xb, &w.wk.assume_init()[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
-                matmul(v, &s.xb, &w.wv.assume_init()[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize]);
+                matmul(&mut sq, &embeddings, &w.wq.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, att_dim as usize);
+                matmul(k, &embeddings, &w.wk.assume_init()[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize], dim as usize, kv_dim as usize);
+                matmul(v, &embeddings, &w.wv.assume_init()[(l*dim*kv_dim) as usize..(l*dim*kv_dim + dim*kv_dim) as usize], dim as usize, kv_dim as usize);
             } else {
-                let sxq = &mut *s.xq.as_mut_ptr();
-
+                let sxq = &mut MutableQuantizedTensor { q: &mut vec![0; total_shape], s: &mut vec![0.0; total_shape as usize]};
+                
                 if p.q_type == QuantType::Q8_0 {
-                    quantize(sxq, &s.xb, dim as usize, gs);
+                    quantize(sxq, &embeddings, total_shape as usize, gs);
                     
-                    matmul_q8(&mut s.q, sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                    matmul_q8(k, sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                    matmul_q8(v, sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    matmul_q8(&mut sq, sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, att_dim as usize, gs as usize);
+                    matmul_q8(k, sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, kv_dim as usize, gs as usize);
+                    matmul_q8(v, sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, kv_dim as usize, gs as usize);
                 } else if p.q_type == QuantType::Q4_0 {
-                    quantize_q4(sxq, &s.xb, dim as usize, gs);
+                    quantize_q4(sxq, &embeddings, total_shape as usize, gs);
                     
-                    matmul_q4(&mut s.q, sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                    matmul_q4(k, sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                    matmul_q4(v, sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    matmul_q4(&mut sq, sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, att_dim as usize, gs as usize);
+                    matmul_q4(k, sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, kv_dim as usize, gs as usize);
+                    matmul_q4(v, sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, kv_dim as usize, gs as usize);
                 }
             }
         }
-        
+         
         // RoPE
-        for i in 0..p.n_heads {
-            for j in 0..(head_size/2) {
-                let head_dim: u32 = j * 2;
-                let mut freq: f32 = 1.0 / p.rope_theta.powf(head_dim as f32/head_size as f32);
+        k.par_chunks_mut(kv_dim as usize).zip(sq.par_chunks_mut(att_dim as usize)).enumerate().for_each( |(idx, (tk, tq))| {
+            for i in 0..p.n_heads {
+                for j in 0..(head_size/2) {
+                    let head_dim: u32 = j * 2;
+                    let mut freq: f32 = 1.0 / p.rope_theta.powf(head_dim as f32/head_size as f32);
 
-                let mut scaling_factor = 1.0;
+                    let mut scaling_factor = 1.0;
 
-                if p.model_type == ModelType::LLAMA {
-                    let wavelen = (2.0 * std::f32::consts::PI) / freq;
-                    
-                    // Should be on args
-                    let factor = 32.0;
-                    let low_freq_factor = 1.0;
-                    let high_freq_factor = 4.0;
-                    let old_context_len = 8192.0;
-
-                    let low_freq_wavelen = old_context_len / low_freq_factor;
-                    let high_freq_wavelen = old_context_len / high_freq_factor;
-
-                    if wavelen > low_freq_wavelen {
-                        freq /= factor;
-                    } else if wavelen <= low_freq_wavelen && wavelen >= high_freq_wavelen {
-                        let smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor);
+                    if p.model_type == ModelType::LLAMA {
+                        let wavelen = (2.0 * std::f32::consts::PI) / freq;
                         
-                        freq = (1.0 - smooth_factor) * freq / factor + smooth_factor * freq
+                        // Should be on args
+                        let factor = 32.0;
+                        let low_freq_factor = 1.0;
+                        let high_freq_factor = 4.0;
+                        let old_context_len = 8192.0;
+
+                        let low_freq_wavelen = old_context_len / low_freq_factor;
+                        let high_freq_wavelen = old_context_len / high_freq_factor;
+
+                        if wavelen > low_freq_wavelen {
+                            freq /= factor;
+                        } else if wavelen <= low_freq_wavelen && wavelen >= high_freq_wavelen {
+                            let smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor);
+                            
+                            freq = (1.0 - smooth_factor) * freq / factor + smooth_factor * freq
+                        }
                     }
-                }
 
-                if p.model_type == ModelType::PHI {
-                    let short_factor: [f64; 48] = [1.08, 1.1, 1.1300000000000001, 1.2800000000000002, 1.3100000000000003, 1.4500000000000004, 1.4500000000000004, 1.9500000000000008, 2.030000000000001, 2.4299999999999926, 2.5699999999999896, 2.9499999999999815, 3.729999999999965, 3.869999999999962, 4.189999999999955, 4.43999999999995, 4.6399999999999455, 4.979999999999938, 5.159999999999934, 5.279999999999932, 5.759999999999922, 5.889999999999919, 5.889999999999919, 5.969999999999917, 6.089999999999915, 6.2799999999999105, 6.7699999999999, 6.8899999999998975, 7.109999999999893, 7.129999999999892, 7.179999999999891, 7.289999999999889, 7.339999999999888, 7.559999999999883, 7.619999999999882, 7.69999999999988, 7.879999999999876, 7.879999999999876, 7.879999999999876, 7.939999999999875, 7.949999999999875, 7.979999999999874, 8.19999999999987, 8.439999999999864, 8.469999999999864, 8.589999999999861, 8.809999999999857, 8.999999999999853];
+                    if p.model_type == ModelType::PHI {
+                        let short_factor: [f64; 48] = [1.08, 1.1, 1.1300000000000001, 1.2800000000000002, 1.3100000000000003, 1.4500000000000004, 1.4500000000000004, 1.9500000000000008, 2.030000000000001, 2.4299999999999926, 2.5699999999999896, 2.9499999999999815, 3.729999999999965, 3.869999999999962, 4.189999999999955, 4.43999999999995, 4.6399999999999455, 4.979999999999938, 5.159999999999934, 5.279999999999932, 5.759999999999922, 5.889999999999919, 5.889999999999919, 5.969999999999917, 6.089999999999915, 6.2799999999999105, 6.7699999999999, 6.8899999999998975, 7.109999999999893, 7.129999999999892, 7.179999999999891, 7.289999999999889, 7.339999999999888, 7.559999999999883, 7.619999999999882, 7.69999999999988, 7.879999999999876, 7.879999999999876, 7.879999999999876, 7.939999999999875, 7.949999999999875, 7.979999999999874, 8.19999999999987, 8.439999999999864, 8.469999999999864, 8.589999999999861, 8.809999999999857, 8.999999999999853];
 
-                    freq *= (1.0/short_factor[j as usize]) as f32;
-                    let scale = 131072f32/4096f32;
-                    scaling_factor = (1.0 + scale.ln() / 4096f32.ln()).sqrt();
-                }
+                        freq *= (1.0/short_factor[j as usize]) as f32;
+                        let scale = 131072f32/4096f32;
+                        scaling_factor = (1.0 + scale.ln() / 4096f32.ln()).sqrt();
+                    }
 
-                let val: f32 = pos as f32 * freq;
-                let fcr = val.cos() * scaling_factor;
-                let fci = val.sin() * scaling_factor;
-                let rotn: u32 = if (i*head_size) + j + head_size/2 < kv_dim {2} else {1};
+                    let val: f32 = (pos + idx as u32) as f32 * freq;
+                    let fcr = val.cos() * scaling_factor;
+                    let fci = val.sin() * scaling_factor;
+                    let rotn: u32 = if (i*head_size) + j + head_size/2 < kv_dim {2} else {1};
 
-                for v in 0..rotn{
-                    let vec: &mut [f32] = if v == 0 {&mut s.q} else {k};
-                    let v0: f32 = vec[((i*head_size) + j) as usize];
-                    let v1: f32 = vec[(((i*head_size) + j)+(head_size/2)) as usize];
-                    
-                    vec[((i*head_size) + j) as usize] = v0 * fcr - v1 * fci;
-                    vec[(((i*head_size) + j)+(head_size/2)) as usize]= v0 * fci + v1 * fcr;
-                }
-            }
-        }
-            
-        s.xb3.par_chunks_mut(head_size as usize).enumerate().for_each( |(h, xb)| {
-            let q = &s.q[(h as u32 * head_size) as usize..(h as u32 * head_size + head_size) as usize];
-
-            let att = &mut vec![0.0; p.seq_len as usize];
-
-            for t in 0..pos+1 {
-                let k = &s.key_cache[(loff + t * kv_dim + (h as u32 / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h as u32 / kv_mul) * head_size + head_size) as usize];
-                
-                let mut score: f32 = 0.0;
-
-                for i in 0..head_size {
-                    score += q[i as usize] * k[i as usize];
-                }
-                
-                score /= (head_size as f32).sqrt();
-                
-                if p.model_type == ModelType::GEMMA {
-                    // Softcapping
-                    score /= 50.0f32;
-                    score = (score as f64).tanh() as f32;
-                    score *= 50.0f32;
-                    
-                    // Local attention
-                    score += if pos - t <= 4096 {0.0} else {-2.3819763e38};
-                }
-
-                att[t as usize] = score;
-            }
-
-            softmax(&mut att[..(pos+1) as usize]);
-
-            xb.fill(0.0);
-
-            for t in 0..pos+1 {
-                let v = &s.value_cache[(loff + t * kv_dim + (h as u32 / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h as u32 / kv_mul) * head_size + head_size) as usize];
-                let a = att[t as usize];
-
-                for i in 0..head_size {
-                    xb[i as usize] += a * v[i as usize];
+                    for v in 0..rotn{
+                        let vec: &mut [f32] = if v == 0 {tq} else {tk};
+                        let v0: f32 = vec[((i*head_size) + j) as usize];
+                        let v1: f32 = vec[(((i*head_size) + j)+(head_size/2)) as usize];
+                        
+                        vec[((i*head_size) + j) as usize] = v0 * fcr - v1 * fci;
+                        vec[(((i*head_size) + j)+(head_size/2)) as usize]= v0 * fci + v1 * fcr;
+                    }
                 }
             }
         });
+        
+        embeddings[..(att_dim*sl) as usize].par_chunks_mut(att_dim as usize).enumerate().for_each( |(i, elem)| {
+            elem.par_chunks_mut(head_size as usize).enumerate().for_each( |(h, xb)| {
+                let q = &sq[(i as u32 * att_dim + h as u32 * head_size) as usize..(i as u32 * att_dim + h as u32 * head_size + head_size) as usize];
 
+                let att = &mut vec![0.0; p.seq_len as usize];
+
+                for t in 0..pos + i as u32 + 1 {
+                    let k = &s.key_cache[(loff + t * kv_dim + (h as u32 / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h as u32 / kv_mul) * head_size + head_size) as usize];
+                    
+                    let mut score: f32 = 0.0;
+
+                    for idx in 0..head_size {
+                        score += q[idx as usize] * k[idx as usize];
+                    }
+                    
+                    score /= (head_size as f32).sqrt();
+                    
+                    if p.model_type == ModelType::GEMMA {
+                        // Softcapping
+                        score /= 50.0f32;
+                        score = (score as f64).tanh() as f32;
+                        score *= 50.0f32;
+                        
+                        // Local attention
+                        score += if pos - t <= 4096 {0.0} else {-2.3819763e38};
+                    }
+
+                    att[t as usize] = score;
+                }
+
+                softmax(&mut att[..(pos + i as u32 + 1) as usize]);
+
+                xb.fill(0.0);
+
+                for t in 0..pos + i as u32 + 1 {
+                    let v = &s.value_cache[(loff + t * kv_dim + (h as u32 / kv_mul) * head_size) as usize..(loff + t * kv_dim + (h as u32 / kv_mul) * head_size + head_size) as usize];
+                    let a = att[t as usize];
+
+                    for idx in 0..head_size {
+                        xb[idx as usize] += a * v[idx as usize];
+                    }
+                }
+            });
+        });
+        
         unsafe {
             if !quantized {
-                matmul(&mut s.xb2, &s.xb3, &w.wo.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
+                matmul(&mut temp_embeddings, &embeddings, &w.wo.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], att_dim as usize, dim as usize);
             } else {
-                let sxq1 = &mut *s.xq1.as_mut_ptr();
+                let sxq1 = &mut MutableQuantizedTensor { q: &mut vec![0; (att_dim * sl) as usize], s: &mut vec![0.0; (att_dim * sl) as usize]};
                 
                 if p.q_type == QuantType::Q8_0 {
-                    quantize(sxq1, &s.xb3, att_dim as usize, gs);
-                    matmul_q8(&mut s.xb2, sxq1, &w.wo_quant.assume_init()[l as usize], att_dim as usize, gs as usize)
+                    quantize(sxq1, &embeddings, (att_dim*sl) as usize, gs);
+                    matmul_q8(&mut temp_embeddings, sxq1, &w.wo_quant.assume_init()[l as usize], att_dim as usize, dim as usize, gs as usize)
                 } else {
-                    quantize_q4(sxq1, &s.xb3, att_dim as usize, gs);
-                    matmul_q4(&mut s.xb2, sxq1, &w.wo_quant.assume_init()[l as usize], att_dim as usize, gs as usize)
+                    quantize_q4(sxq1, &embeddings, (att_dim*sl) as usize, gs);
+                    matmul_q4(&mut temp_embeddings, sxq1, &w.wo_quant.assume_init()[l as usize], att_dim as usize, dim as usize, gs as usize)
                 }
             }
         }
         
-        if p.model_type == ModelType::GEMMA {
-            rmsnorm(&mut s.xb, &s.xb2, &w.w_rms_post_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
-        
-            for i in 0..dim {
-                x[i as usize] += s.xb[i as usize];
-            }
+        x.par_chunks_mut(dim as usize).zip(embeddings.par_chunks_mut(dim as usize)).zip(temp_embeddings.par_chunks(dim as usize)).for_each( |((xelem, emb), temb)| {
+            if p.model_type == ModelType::GEMMA {
+                rmsnorm(emb, temb, &w.w_rms_post_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
             
-            unsafe {
-                rmsnorm(&mut s.xb, x, &w.w_rms_pre_ffn.assume_init()[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, true);
+                for i in 0..dim {
+                    xelem[i as usize] += emb[i as usize];
+                }
+                
+                unsafe {
+                    rmsnorm(emb, xelem, &w.w_rms_pre_ffn.assume_init()[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, true);
+                }
+            } else {
+                for i in 0..dim {
+                    xelem[i as usize] += temb[i as usize];
+                }
+                
+                rmsnorm(emb, xelem, &w.w_rms_post_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
             }
-        } else {
-            for i in 0..dim {
-                x[i as usize] += s.xb2[i as usize];
-            }
-            
-            rmsnorm(&mut s.xb, x, &w.w_rms_post_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
-        }
-        
+        });
+         
         // GeGLU is w2(GELU(w1(x)) * w3(x)) 
         // w1 -> gate_proj weights
         // w2 -> down_proj weights
@@ -587,69 +583,73 @@ impl<'a> Transformer<'a> {
 
         unsafe {
             if !quantized {
-                matmul(&mut s.hb, &s.xb, &w.w1.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
-                matmul(&mut s.hb2, &s.xb, &w.w3.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+                matmul(&mut hidden_embeddings, &embeddings, &w.w1.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize], dim as usize, hidden_dim as usize);
+                matmul(&mut temp_hidden_embeddings, &embeddings, &w.w3.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize], dim as usize, hidden_dim as usize);
             } else {
-                let sxq = &mut *s.xq.as_mut_ptr();
+                let sxq = &mut MutableQuantizedTensor { q: &mut vec![0; (dim * sl) as usize], s: &mut vec![0.0; (dim * sl) as usize]};
                 
                 if p.q_type == QuantType::Q8_0 {
-                    quantize(sxq, &s.xb, dim as usize, gs);
-                    matmul_q8(&mut s.hb, sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                    matmul_q8(&mut s.hb2, sxq, &w.w3_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    quantize(sxq, &embeddings, total_shape as usize, gs);
+                    matmul_q8(&mut hidden_embeddings, sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
+                    matmul_q8(&mut temp_hidden_embeddings, sxq, &w.w3_quant.assume_init()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
                 } else if p.q_type == QuantType::Q4_0{
-                    quantize_q4(sxq, &s.xb, dim as usize, gs);
-                    matmul_q4(&mut s.hb, sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                    matmul_q4(&mut s.hb2, sxq, &w.w3_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                    quantize_q4(sxq, &embeddings, total_shape as usize, gs);
+                    matmul_q4(&mut hidden_embeddings, sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
+                    matmul_q4(&mut temp_hidden_embeddings, sxq, &w.w3_quant.assume_init()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
                 }
             }
         }
-            
-        for i in 0..hidden_dim {
-            let mut val = s.hb[i as usize];
 
-            // Best case we would have the activation in the args, but for now this will do 
-            if p.model_type == ModelType::GEMMA {
-                // GELU
-                val *= 0.5 * (1.0 + ((0.7978845608028654 * (val + 0.044715 * val * val * val) as f64).tanh()) as f32);   
-            } else {
-                // SiLU
-                val *= 1.0 / (1.0 + (-val).exp());
+        hidden_embeddings.par_chunks_mut(hidden_dim as usize).zip(temp_hidden_embeddings.par_chunks(hidden_dim as usize)).for_each( |(hb, hb2)| {
+            for i in 0..hidden_dim {
+                let mut val = hb[i as usize];
+
+                // Best case we would have the activation in the args, but for now this will do 
+                if p.model_type == ModelType::GEMMA {
+                    // GELU
+                    val *= 0.5 * (1.0 + ((0.7978845608028654 * (val + 0.044715 * val * val * val) as f64).tanh()) as f32);   
+                } else {
+                    // SiLU
+                    val *= 1.0 / (1.0 + (-val).exp());
+                }
+
+                val *= hb2[i as usize];
+                
+                hb[i as usize] = val;
             }
-
-            val *= s.hb2[i as usize];
-            
-            s.hb[i as usize] = val;
-        }
+        });
 
         unsafe {
             if !quantized {
-                matmul(&mut s.xb, &s.hb, &w.w2.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+                matmul(&mut embeddings, &hidden_embeddings, &w.w2.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize], hidden_dim as usize, dim as usize);
             } else {
-                let shq = &mut *s.hq.as_mut_ptr();
+                let shq = &mut MutableQuantizedTensor { q: &mut vec![0; (hidden_dim * sl) as usize], s: &mut vec![0.0; (hidden_dim * sl) as usize]};
 
                 if p.q_type == QuantType::Q8_0 {
-                    quantize(shq, &s.hb, hidden_dim as usize, gs);
-                    matmul_q8(&mut s.xb, shq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, gs as usize);
+                    quantize(shq, &hidden_embeddings, total_shape_hidden, gs);
+                    matmul_q8(&mut embeddings, shq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, dim as usize, gs as usize);
                 } else if p.q_type == QuantType::Q4_0 {
-                    quantize_q4(shq, &s.hb, hidden_dim as usize, gs);
-                    matmul_q4(&mut s.xb, shq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, gs as usize);
+                    quantize_q4(shq, &hidden_embeddings, total_shape_hidden, gs);
+                    matmul_q4(&mut embeddings, shq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, dim as usize, gs as usize);
                 }
             }
         }
 
-        if p.model_type == ModelType::GEMMA {
-            unsafe {
-                rmsnorm(&mut s.xb2, &s.xb, &w.w_rms_post_ffn.assume_init()[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, true);
+        x.par_chunks_mut(dim as usize).zip(embeddings.par_chunks(dim as usize)).zip(temp_embeddings.par_chunks_mut(dim as usize)).for_each(| ((xelem, emb), temb) | {
+            if p.model_type == ModelType::GEMMA {
+                unsafe {
+                    rmsnorm(temb, emb, &w.w_rms_post_ffn.assume_init()[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, true);
+                }
+                
+                for i in 0..dim {
+                    xelem[i as usize] += temb[i as usize];
+                }
+            } else {
+                for i in 0..dim {
+                    xelem[i as usize] += emb[i as usize];
+                }
             }
-            
-            for i in 0..dim {
-                x[i as usize] += s.xb2[i as usize];
-            }
-        } else {
-            for i in 0..dim {
-                x[i as usize] += s.xb[i as usize];
-            }
-        }
+        });
     }
 
     pub fn get_embeddings(&self, tokens: &[u32]) -> Vec<f32> {
@@ -667,16 +667,15 @@ impl<'a> Transformer<'a> {
     // For now we use batch = 1, probably doing a batched alternative would be faster
     pub fn fill_kv_cache(&mut self, embeddings: &mut [f32], curr_pos: u32) -> u32 {
         let p = self.args;
-        let dim = p.dim;    
+        let num_embeddings = embeddings.len() as u32/self.args.dim;    
         let mut pos = curr_pos;
 
-        embeddings.chunks_mut(dim as usize).for_each( |x| {
-            for l in 0..p.n_layers {
-                self.forward_layer(x, l, pos)
-            }
-            
-            pos += 1;
-        });
+        for l in 0..p.n_layers {
+            println!("L - {}", l);
+            self.forward_layer(embeddings, num_embeddings, l, pos)
+        }
+
+        pos += num_embeddings;
 
         pos
     }
@@ -704,14 +703,6 @@ impl<'a> Drop for Transformer<'a> {
                 let sxq = &mut *self.state.xq.as_mut_ptr();
                 dealloc(sxq.q.as_ptr() as *mut u8, Layout::array::<i8>(sxq.q.len()).unwrap());
                 dealloc(sxq.s.as_ptr() as *mut u8, Layout::array::<f32>(sxq.s.len()).unwrap());
-                
-                let sxq1 = &mut *self.state.xq1.as_mut_ptr();
-                dealloc(sxq1.q.as_ptr() as *mut u8, Layout::array::<i8>(sxq1.q.len()).unwrap());
-                dealloc(sxq1.s.as_ptr() as *mut u8, Layout::array::<f32>(sxq1.s.len()).unwrap());
-                
-                let shq = &mut *self.state.hq.as_mut_ptr();
-                dealloc(shq.q.as_ptr() as *mut u8, Layout::array::<i8>(shq.q.len()).unwrap());
-                dealloc(shq.s.as_ptr() as *mut u8, Layout::array::<f32>(shq.s.len()).unwrap());
             }
         }
     }

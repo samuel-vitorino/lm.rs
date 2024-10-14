@@ -315,24 +315,24 @@ impl<'a> VisionTransformer<'a> {
                 qkv[(i*out_shape*3) as usize..(i*out_shape*3 + out_shape*3) as usize].par_chunks_mut((dim*3) as usize).enumerate().for_each( |(h, xb)| {
                     unsafe {
                         if !quantized {
-                            matmul(&mut xb[..dim as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wq.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
-                            matmul(&mut xb[dim as usize..(dim*2) as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wk.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
-                            matmul(&mut xb[(dim*2) as usize..(dim*3) as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wv.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
+                            matmul(&mut xb[..dim as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wq.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
+                            matmul(&mut xb[dim as usize..(dim*2) as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wk.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
+                            matmul(&mut xb[(dim*2) as usize..(dim*3) as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wv.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
                         } else {
                             let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (dim) as usize], s: &mut vec![0.0; dim as usize]};
 
                             if p.q_type == QuantType::Q8_0 {
                                 quantize(&mut sxq, &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
                                 
-                                matmul_q8(&mut xb[..dim as usize], &sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                                matmul_q8(&mut xb[dim as usize..(dim*2) as usize], &sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                                matmul_q8(&mut xb[(dim*2) as usize..(dim*3) as usize], &sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                                matmul_q8(&mut xb[..dim as usize], &sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
+                                matmul_q8(&mut xb[dim as usize..(dim*2) as usize], &sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
+                                matmul_q8(&mut xb[(dim*2) as usize..(dim*3) as usize], &sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
                             } else if p.q_type == QuantType::Q4_0 {
                                 quantize_q4(&mut sxq, &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
                                 
-                                matmul_q4(&mut xb[..dim as usize], &sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                                matmul_q4(&mut xb[dim as usize..(dim*2) as usize], &sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, gs as usize);
-                                matmul_q4(&mut xb[(dim*2) as usize..(dim*3) as usize], &sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                                matmul_q4(&mut xb[..dim as usize], &sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
+                                matmul_q4(&mut xb[dim as usize..(dim*2) as usize], &sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
+                                matmul_q4(&mut xb[(dim*2) as usize..(dim*3) as usize], &sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
                             }
                         }
                     }
@@ -381,7 +381,7 @@ impl<'a> VisionTransformer<'a> {
             for i in 0..num_crops {
                 att[(i*att_size) as usize..(i*att_size + att_size) as usize].par_chunks_mut((n_patches) as usize).enumerate().for_each( |(h, xb)| {
                     let curr_head = h as u32 / n_patches;
-                    matmul(xb, &q[(i*out_shape + (h as u32 * head_size)) as usize..(i*out_shape + (h as u32 * head_size) + head_size) as usize], &k[(i*out_shape + (curr_head*head_size*n_patches)) as usize..((i*out_shape) + (curr_head*head_size*n_patches) + head_size*n_patches) as usize]);
+                    matmul(xb, &q[(i*out_shape + (h as u32 * head_size)) as usize..(i*out_shape + (h as u32 * head_size) + head_size) as usize], &k[(i*out_shape + (curr_head*head_size*n_patches)) as usize..((i*out_shape) + (curr_head*head_size*n_patches) + head_size*n_patches) as usize], head_size as usize, n_patches as usize);
                 })
             }
 
@@ -398,7 +398,7 @@ impl<'a> VisionTransformer<'a> {
             for i in 0..num_crops {
                 embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut((head_size) as usize).enumerate().for_each( |(h, xb)| {
                     let curr_head = h as u32 / n_patches;
-                    matmul(xb, &att[(i*att_size + (h as u32 * n_patches)) as usize..(i*att_size + (h as u32 * n_patches) + n_patches) as usize], &v[(i*out_shape + curr_head*n_patches*head_size) as usize..((i*out_shape + curr_head*n_patches*head_size) + n_patches*head_size) as usize]);
+                    matmul(xb, &att[(i*att_size + (h as u32 * n_patches)) as usize..(i*att_size + (h as u32 * n_patches) + n_patches) as usize], &v[(i*out_shape + curr_head*n_patches*head_size) as usize..((i*out_shape + curr_head*n_patches*head_size) + n_patches*head_size) as usize], n_patches as usize, head_size as usize);
                 })
             }
             
@@ -418,18 +418,18 @@ impl<'a> VisionTransformer<'a> {
                 embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut((dim) as usize).enumerate().for_each( |(h, xb)| {
                     unsafe {
                         if !quantized {
-                            matmul(xb, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wo.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize]);
+                            matmul(xb, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wo.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
                         } else {
                             let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (dim) as usize], s: &mut vec![0.0; dim as usize]};
 
                             if p.q_type == QuantType::Q8_0 {
                                 quantize(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
                                 
-                                matmul_q8(xb, &sxq, &w.wo_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                                matmul_q8(xb, &sxq, &w.wo_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
                             } else if p.q_type == QuantType::Q4_0 {
                                 quantize_q4(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
                                 
-                                matmul_q4(xb, &sxq, &w.wo_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                                matmul_q4(xb, &sxq, &w.wo_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
                             }
                         }
                     }
@@ -480,18 +480,18 @@ impl<'a> VisionTransformer<'a> {
 
                     unsafe {
                         if !quantized {
-                            matmul(&mut hidden_emb, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.w1.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+                            matmul(&mut hidden_emb, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.w1.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize], dim as usize, hidden_dim as usize);
                         } else {
                             let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (dim) as usize], s: &mut vec![0.0; dim as usize]};
 
                             if p.q_type == QuantType::Q8_0 {
                                 quantize(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
                                 
-                                matmul_q8(&mut hidden_emb, &sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                                matmul_q8(&mut hidden_emb, &sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
                             } else if p.q_type == QuantType::Q4_0 {
                                 quantize_q4(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
                                 
-                                matmul_q4(&mut hidden_emb, &sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, gs as usize);
+                                matmul_q4(&mut hidden_emb, &sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
                             }
                         }
                     }
@@ -518,18 +518,18 @@ impl<'a> VisionTransformer<'a> {
                     
                     unsafe {
                         if !quantized {
-                            matmul(xb, &hidden_emb, &w.w2.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize]);
+                            matmul(xb, &hidden_emb, &w.w2.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize], hidden_dim as usize, dim as usize);
                         } else {
                             let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (hidden_dim) as usize], s: &mut vec![0.0; hidden_dim as usize]};
 
                             if p.q_type == QuantType::Q8_0 {
                                 quantize(&mut sxq, &hidden_emb, hidden_dim as usize, gs);
                                 
-                                matmul_q8(xb, &sxq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, gs as usize);
+                                matmul_q8(xb, &sxq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, dim as usize, gs as usize);
                             } else if p.q_type == QuantType::Q4_0 {
                                 quantize_q4(&mut sxq, &hidden_emb, hidden_dim as usize, gs);
                                 
-                                matmul_q4(xb, &sxq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, gs as usize);
+                                matmul_q4(xb, &sxq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, dim as usize, gs as usize);
                             }
                         }
                     }
