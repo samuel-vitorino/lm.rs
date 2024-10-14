@@ -29,11 +29,11 @@ Some benchmarks and download links for the models and tokenizers. I recommend us
 |        Model       | Size | Speed |
 | ------------------ | ------------- | ------------- |
 | [Gemma 2 2B IT Q4_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q4_0-LMRS) | 1.39G          | 20 tok/s |
-| [Gemma 2 2B IT Q8_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q8_0-LMRS) | 2.66GB  | 18 tok/s |
+| [Gemma 2 2B IT Q8_0](https://huggingface.co/samuel-vitorino/gemma2-2b-it-q8_0-LMRS) | 2.66GB  | 21 tok/s |
 | [Gemma 2 9B IT Q4_0](https://huggingface.co/samuel-vitorino/gemma2-9b-it-q4_0-LMRS) | 4.91GB  | 7 tok/s  | 
 | [Gemma 2 9B IT Q8_0](https://huggingface.co/samuel-vitorino/gemma2-9b-it-q8_0-LMRS) | 9.53GB | 8 tok/s  |
-| [Llama 3.2 1B IT](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-LMRS) | 4.94GB  | 20 tok/s  | 
-| [Llama 3.2 1B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-Q8_0-LMRS) | 1.27GB | 35 tok/s  |
+| [Llama 3.2 1B IT](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-LMRS) | 4.94GB  | 21 tok/s  | 
+| [Llama 3.2 1B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-1B-Instruct-Q8_0-LMRS) | 1.27GB | 45 tok/s  |
 | [Llama 3.2 3B IT Q4_0](https://huggingface.co/samuel-vitorino/Llama-3.2-3B-Instruct-Q4_0-LMRS) | 1.71GB  | 17 tok/s  | 
 | [Llama 3.2 3B IT Q8_0](https://huggingface.co/samuel-vitorino/Llama-3.2-3B-Instruct-Q8_0-LMRS) | 3.31GB | 16 tok/s  |
 | [PHI 3.5 IT Vision Q8_0](https://huggingface.co/samuel-vitorino/Phi-3.5-vision-instruct-q8_0-LMRS) | 4.28GB | 15 tok/s  |

@@ -493,8 +493,12 @@ impl<'a> Transformer<'a> {
                 }
             }
         });
+
+        if att_dim > dim {
+            embeddings.extend(vec![0.0; ((att_dim - dim)*sl) as usize])
+        }
         
-        embeddings[..(att_dim*sl) as usize].par_chunks_mut(att_dim as usize).enumerate().for_each( |(i, elem)| {
+        embeddings.par_chunks_exact_mut(att_dim as usize).enumerate().for_each( |(i, elem)| {
             elem.par_chunks_mut(head_size as usize).enumerate().for_each( |(h, xb)| {
                 let q = &sq[(i as u32 * att_dim + h as u32 * head_size) as usize..(i as u32 * att_dim + h as u32 * head_size + head_size) as usize];
 
@@ -555,7 +559,7 @@ impl<'a> Transformer<'a> {
             }
         }
         
-        x.par_chunks_mut(dim as usize).zip(embeddings.par_chunks_mut(dim as usize)).zip(temp_embeddings.par_chunks(dim as usize)).for_each( |((xelem, emb), temb)| {
+        x.par_chunks_exact_mut(dim as usize).zip(embeddings.par_chunks_exact_mut(dim as usize)).zip(temp_embeddings.par_chunks_exact(dim as usize)).for_each( |((xelem, emb), temb)| {
             if p.model_type == ModelType::GEMMA {
                 rmsnorm(emb, temb, &w.w_rms_post_att[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, p.model_type == ModelType::GEMMA);
             
@@ -600,7 +604,7 @@ impl<'a> Transformer<'a> {
             }
         }
 
-        hidden_embeddings.par_chunks_mut(hidden_dim as usize).zip(temp_hidden_embeddings.par_chunks(hidden_dim as usize)).for_each( |(hb, hb2)| {
+        hidden_embeddings.par_chunks_exact_mut(hidden_dim as usize).zip(temp_hidden_embeddings.par_chunks_exact(hidden_dim as usize)).for_each( |(hb, hb2)| {
             for i in 0..hidden_dim {
                 let mut val = hb[i as usize];
 
@@ -635,7 +639,7 @@ impl<'a> Transformer<'a> {
             }
         }
 
-        x.par_chunks_mut(dim as usize).zip(embeddings.par_chunks(dim as usize)).zip(temp_embeddings.par_chunks_mut(dim as usize)).for_each(| ((xelem, emb), temb) | {
+        x.par_chunks_exact_mut(dim as usize).zip(embeddings.par_chunks_exact(dim as usize)).zip(temp_embeddings.par_chunks_exact_mut(dim as usize)).for_each(| ((xelem, emb), temb) | {
             if p.model_type == ModelType::GEMMA {
                 unsafe {
                     rmsnorm(temb, emb, &w.w_rms_post_ffn.assume_init()[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.rms_norm_eps, true);
