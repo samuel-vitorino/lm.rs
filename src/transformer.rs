@@ -671,7 +671,6 @@ impl<'a> Transformer<'a> {
         let mut pos = curr_pos;
 
         for l in 0..p.n_layers {
-            println!("L - {}", l);
             self.forward_layer(embeddings, num_embeddings, l, pos)
         }
 
