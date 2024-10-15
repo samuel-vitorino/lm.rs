@@ -349,7 +349,7 @@ impl<'a> PHI3VProcessor<'a> {
         
         let resized_img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_raw(new_w, new_h, transposed_image.clone()).expect("Failed to create image");
 
-        let global_img = resize(&resized_img, 336, 336, image::imageops::FilterType::Nearest);
+        let global_img = resize(&resized_img, 336, 336, image::imageops::FilterType::Triangle);
 
         let cropped_img;
 
@@ -453,7 +453,7 @@ impl<'a> PHI3VProcessor<'a> {
         let mut new_h = (new_w as f32 / ratio) as u32;
 
         let img_buffer: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_raw(new_width, new_height, new_img).expect("Failed to create image");
-        let resized_img = resize(&img_buffer, new_w, new_h, image::imageops::FilterType::Nearest);
+        let resized_img = resize(&img_buffer, new_w, new_h, image::imageops::FilterType::Triangle);
 
         (new_img, new_h) = PHI3VProcessor::padding_336(resized_img.as_raw() as &[u8], new_w, new_h);
 
