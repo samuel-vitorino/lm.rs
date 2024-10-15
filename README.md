@@ -8,7 +8,7 @@ lm.rs: run inference on Language Models locally on the CPU with Rust
 
 <h3>
 
-[WebUI](https://github.com/samuel-vitorino/lm.rs-webui) | [Hugging Face](https://huggingface.co/collections/samuel-vitorino/lmrs-66c7da8a50ce52b61bee70b7) | [Video Demo](https://www.youtube.com/watch?v=FAIN5Jxc0nE) 
+[WebUI](https://github.com/samuel-vitorino/lm.rs-webui) | [Hugging Face](https://huggingface.co/collections/samuel-vitorino/lmrs-66c7da8a50ce52b61bee70b7) | [Text Demo](https://www.youtube.com/watch?v=PRptDEBzd4I) | [Vision Demo](https://www.youtube.com/watch?v=bz3f0PqG9Nk)
 
 </h3>
 
