@@ -249,35 +249,6 @@ pub fn matmul_q4(xout: &mut [f32], x: &MutableQuantizedTensor, w: &QuantizedTens
     });
 }
 
-pub fn matmul_conv(xout: &mut [f32], x: &[f32], w: &[f32], n: usize, patches_per_row: u32) {
-    let n_simd = n / 8;
-    let rest = n_simd * 8;
-    let x_len = x.len();
-    
-    xout.par_iter_mut().enumerate().for_each(|(i, xout_elem)| {
-        let ni: usize = (i / (patches_per_row*patches_per_row) as usize) * n;
-        let x_idx = i*n % x_len;
-
-        let mut val = f32x8::ZERO;
-        let mut sum: f32 = 0.0;
-
-        for k in 0..n_simd {
-            let x_vec = f32x8::from(&x[x_idx+k*8..x_idx+k*8+8]);
-            let w_vec = f32x8::from(&w[ni+k*8..ni+k*8+8]);
-
-            val += x_vec * w_vec;
-        }
-
-        sum += val.reduce_add();
-        
-        for r in rest..n {
-            sum += x[x_idx+r] * w[ni+r];
-        }
-
-        *xout_elem = sum;
-    });
-}
-
 pub fn matmul_rest(xout: &mut [f32], x: &[f32], w: &[f32], n: usize, o: usize) {
     let n_simd = n / 8;
     

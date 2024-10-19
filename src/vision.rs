@@ -1,6 +1,6 @@
 use crate::quantization::{QuantizedTensor, MutableQuantizedTensor, QuantType, quantize, quantize_q4};
 use crate::transformer::{init_param, init_param_quant};
-use crate::functional::{matmul, matmul_rest, matmul_q8, matmul_q4, matmul_conv, concat, layernorm, softmax};
+use crate::functional::{matmul, matmul_rest, matmul_q8, matmul_q4, concat, layernorm, softmax};
 
 use rayon::prelude::*;
 use wide::f32x8;
@@ -259,8 +259,9 @@ impl<'a> VisionTransformer<'a> {
         let mut patch_embeds: Vec<f32> = vec![0.0; (num_crops*out_shape) as usize];
         let patch_shape = p.patch_size*p.patch_size;
         
+        // A conv2d is just a matmul between the kernel and image (matmul_rest because the kernel size is not divisible by 8)
         for b in 0..num_crops {
-            matmul_conv(&mut patch_embeds[(b*out_shape) as usize..(b*out_shape + out_shape) as usize], &pixel_values[(b*img_pixels) as usize..(b*img_pixels + img_pixels) as usize], &w.patch_embedding, (patch_shape*3) as usize, patches_per_row);
+            matmul_rest(&mut patch_embeds[(b*out_shape) as usize..(b*out_shape + out_shape) as usize], &w.patch_embedding, &pixel_values[(b*img_pixels) as usize..(b*img_pixels + img_pixels) as usize], (patch_shape*3) as usize, n_patches as usize);
         }
 
         // Cat class embedding
