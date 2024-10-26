@@ -1,12 +1,9 @@
-use crate::quantization::{QuantizedTensor, MutableQuantizedTensor, QuantType, quantize, quantize_q4};
+use crate::quantization::{Tensor, MutableQuantizedTensor, QuantType, quantize, quantize_q4};
 use crate::transformer::{init_param, init_param_quant};
-use crate::functional::{matmul, matmul_rest, matmul_q8, matmul_q4, matmul_conv, concat, layernorm, softmax};
+use crate::functional::{matmul, matmul_rest, matmul_q8, matmul_q4, concat, layernorm, softmax};
 
 use rayon::prelude::*;
 use wide::f32x8;
-use std::mem::MaybeUninit;
-use std::alloc::dealloc;
-use std::alloc::Layout;
 
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
@@ -24,45 +21,37 @@ pub struct VisionTransformerArgs {
 }
 
 pub struct VisionTransformerWeights<'a> {
-    class_embedding: &'a [f32],
+    class_embedding: Tensor<'a>,
 
-    patch_embedding: &'a [f32],
+    patch_embedding: Tensor<'a>,
     
-    position_embedding: &'a [f32],
+    position_embedding: Tensor<'a>,
 
     // Attention
 
-    wq: MaybeUninit<&'a [f32]>,
-    wq_bias: &'a [f32],
-    wk: MaybeUninit<&'a [f32]>,
-    wk_bias: &'a [f32],
-    wv: MaybeUninit<&'a [f32]>,
-    wv_bias: &'a [f32],
-    wo: MaybeUninit<&'a [f32]>,
-    wo_bias: &'a [f32],
+    wq: Tensor<'a>,
+    wq_bias: Tensor<'a>,
+    wk: Tensor<'a>,
+    wk_bias: Tensor<'a>,
+    wv: Tensor<'a>,
+    wv_bias: Tensor<'a>,
+    wo: Tensor<'a>,
+    wo_bias: Tensor<'a>,
     
-    wq_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    wk_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    wv_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    wo_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-
-    layer_norm1: &'a [f32],
-    layer_norm2: &'a [f32],
-    layer_norm1_bias: &'a [f32],
-    layer_norm2_bias: &'a [f32],
+    layer_norm1: Tensor<'a>,
+    layer_norm2: Tensor<'a>,
+    layer_norm1_bias: Tensor<'a>,
+    layer_norm2_bias: Tensor<'a>,
 
     // FFN
 
-    w1: MaybeUninit<&'a [f32]>,
-    w1_bias: &'a [f32],
-    w2: MaybeUninit<&'a [f32]>,
-    w2_bias: &'a [f32],
+    w1: Tensor<'a>,
+    w1_bias: Tensor<'a>,
+    w2: Tensor<'a>,
+    w2_bias: Tensor<'a>,
 
-    w1_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    w2_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-
-    pre_layer_norm: &'a [f32],
-    pre_layer_norm_bias: &'a [f32],
+    pre_layer_norm: Tensor<'a>,
+    pre_layer_norm_bias: Tensor<'a>,
 }
 
 pub struct VisionTransformer<'a> {
@@ -101,7 +90,7 @@ impl<'a> VisionTransformer<'a> {
 
         assert!(head.is_empty(), "Data was not aligned");
         
-        let cfg = &body[0];
+        let cfg = body[0];
 
         let head_size = cfg.head_size;
         
@@ -147,30 +136,24 @@ impl<'a> VisionTransformer<'a> {
                 layer_norm1_bias,
                 layer_norm2,
                 layer_norm2_bias,
-                wq: MaybeUninit::new(wq),
-                wk: MaybeUninit::new(wk),
-                wv: MaybeUninit::new(wv),
-                wo: MaybeUninit::new(wo),
+                wq,
+                wk,
+                wv,
+                wo,
                 wq_bias,
                 wk_bias,
                 wv_bias,
                 wo_bias,
-                wq_quant: MaybeUninit::uninit(),
-                wk_quant: MaybeUninit::uninit(),
-                wv_quant: MaybeUninit::uninit(),
-                wo_quant: MaybeUninit::uninit(),
-                w1: MaybeUninit::new(w1),
-                w2: MaybeUninit::new(w2),
+                w1,
+                w2,
                 w1_bias,
                 w2_bias,
-                w1_quant: MaybeUninit::uninit(),
-                w2_quant: MaybeUninit::uninit(),
                 pre_layer_norm,
                 pre_layer_norm_bias,
             };
 
             return (VisionTransformer {
-                args: *cfg,
+                args: cfg,
                 weights,
             }, offset)
         } 
@@ -184,20 +167,20 @@ impl<'a> VisionTransformer<'a> {
         let layer_norm2 = init_param(data, &mut offset, cfg.n_layers, cfg.dim);
         let layer_norm2_bias = init_param(data, &mut offset, cfg.n_layers, cfg.dim);
 
-        let wq_quant = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
+        let wq = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
         let wq_bias = init_param(data, &mut offset, cfg.n_layers, cfg.dim);
-        let wk_quant = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
+        let wk = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
         let wk_bias = init_param(data, &mut offset, cfg.n_layers, cfg.dim);
-        let wv_quant = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
+        let wv = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
         let wv_bias = init_param(data, &mut offset, cfg.n_layers, cfg.dim);
         
-        let wo_quant = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
+        let wo = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.n_heads * head_size, cfg.group_size, cfg.q_type);
         let wo_bias = init_param(data, &mut offset, cfg.n_layers, cfg.dim);
         
-        let w1_quant = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
+        let w1 = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
         let w1_bias = init_param(data, &mut offset, cfg.n_layers, cfg.hidden_dim);
         
-        let w2_quant = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
+        let w2 = init_param_quant(data, &mut offset, cfg.n_layers, cfg.dim * cfg.hidden_dim, cfg.group_size, cfg.q_type);
         let w2_bias = init_param(data, &mut offset, cfg.n_layers, cfg.dim);
         
         let pre_layer_norm = init_param(data, &mut offset, 1, cfg.dim);
@@ -211,24 +194,18 @@ impl<'a> VisionTransformer<'a> {
             layer_norm1_bias,
             layer_norm2,
             layer_norm2_bias,
-            wq: MaybeUninit::uninit(),
-            wk: MaybeUninit::uninit(),
-            wv: MaybeUninit::uninit(),
-            wo: MaybeUninit::uninit(),
             wq_bias,
             wk_bias,
             wv_bias,
             wo_bias,
-            wq_quant: MaybeUninit::new(wq_quant),
-            wk_quant: MaybeUninit::new(wk_quant),
-            wv_quant: MaybeUninit::new(wv_quant),
-            wo_quant: MaybeUninit::new(wo_quant),
-            w1: MaybeUninit::uninit(),
-            w2: MaybeUninit::uninit(),
+            wq,
+            wk,
+            wv,
+            wo,
             w1_bias,
             w2_bias,
-            w1_quant: MaybeUninit::new(w1_quant),
-            w2_quant: MaybeUninit::new(w2_quant),
+            w1,
+            w2,
             pre_layer_norm,
             pre_layer_norm_bias,
         };
@@ -236,7 +213,7 @@ impl<'a> VisionTransformer<'a> {
         println!("Done.\n");
         
         (VisionTransformer {
-            args: *cfg,
+            args: cfg,
             weights,
         }, offset)
     }
@@ -259,8 +236,9 @@ impl<'a> VisionTransformer<'a> {
         let mut patch_embeds: Vec<f32> = vec![0.0; (num_crops*out_shape) as usize];
         let patch_shape = p.patch_size*p.patch_size;
         
+        // A conv2d is just a matmul between the kernel and image (matmul_rest because the kernel size is not divisible by 8)
         for b in 0..num_crops {
-            matmul_conv(&mut patch_embeds[(b*out_shape) as usize..(b*out_shape + out_shape) as usize], &pixel_values[(b*img_pixels) as usize..(b*img_pixels + img_pixels) as usize], &w.patch_embedding, (patch_shape*3) as usize, patches_per_row);
+            matmul_rest(&mut patch_embeds[(b*out_shape) as usize..(b*out_shape + out_shape) as usize], &w.patch_embedding.as_float(), &pixel_values[(b*img_pixels) as usize..(b*img_pixels + img_pixels) as usize], (patch_shape*3) as usize, n_patches as usize);
         }
 
         // Cat class embedding
@@ -275,7 +253,7 @@ impl<'a> VisionTransformer<'a> {
                 }
             }
 
-            embeddings.extend(concat::<f32>(w.class_embedding, &transposed));
+            embeddings.extend(concat::<f32>(w.class_embedding.as_float(), &transposed));
         }
 
         n_patches += 1;
@@ -285,7 +263,7 @@ impl<'a> VisionTransformer<'a> {
         for i in 0..embeddings.len() {
             let p_idx = i % out_shape as usize;
 
-            embeddings[i as usize] += w.position_embedding[p_idx as usize];
+            embeddings[i as usize] += w.position_embedding.as_float()[p_idx as usize];
         }
 
         // Input layernorm
@@ -293,7 +271,7 @@ impl<'a> VisionTransformer<'a> {
         
         for i in 0..num_crops {
             norm_embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut(dim as usize).enumerate().for_each( |(k, nemb)| {
-                layernorm(nemb, &embeddings[(i*out_shape+k as u32*dim) as usize..(i*out_shape+k as u32*dim + p.dim) as usize], w.pre_layer_norm, w.pre_layer_norm_bias, dim as usize, p.layernorm_eps);
+                layernorm(nemb, &embeddings[(i*out_shape+k as u32*dim) as usize..(i*out_shape+k as u32*dim + p.dim) as usize], w.pre_layer_norm.as_float(), w.pre_layer_norm_bias.as_float(), dim as usize, p.layernorm_eps);
             });
         }
         
@@ -305,33 +283,31 @@ impl<'a> VisionTransformer<'a> {
             
             for i in 0..num_crops {
                 embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut(dim as usize).enumerate().for_each( |(k, emb)| {
-                    layernorm(emb, &norm_embeddings[(i*out_shape+k as u32*dim) as usize..(i*out_shape+k as u32*dim + p.dim) as usize], &w.layer_norm1[(l*dim) as usize..(l*dim + dim) as usize], &w.layer_norm1_bias[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.layernorm_eps);
+                    layernorm(emb, &norm_embeddings[(i*out_shape+k as u32*dim) as usize..(i*out_shape+k as u32*dim + p.dim) as usize], &w.layer_norm1.as_float()[(l*dim) as usize..(l*dim + dim) as usize], &w.layer_norm1_bias.as_float()[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.layernorm_eps);
                 });
             }
 
             for i in 0..num_crops {
                 qkv[(i*out_shape*3) as usize..(i*out_shape*3 + out_shape*3) as usize].par_chunks_mut((dim*3) as usize).enumerate().for_each( |(h, xb)| {
-                    unsafe {
-                        if !quantized {
-                            matmul(&mut xb[..dim as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wq.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
-                            matmul(&mut xb[dim as usize..(dim*2) as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wk.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
-                            matmul(&mut xb[(dim*2) as usize..(dim*3) as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wv.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
-                        } else {
-                            let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (dim) as usize], s: &mut vec![0.0; dim as usize]};
+                    if !quantized {
+                        matmul(&mut xb[..dim as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wq.as_float()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
+                        matmul(&mut xb[dim as usize..(dim*2) as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wk.as_float()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
+                        matmul(&mut xb[(dim*2) as usize..(dim*3) as usize], &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wv.as_float()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
+                    } else {
+                        let mut sxq = MutableQuantizedTensor { q: vec![0; (dim) as usize], s: vec![0.0; dim as usize]};
 
-                            if p.q_type == QuantType::Q8_0 {
-                                quantize(&mut sxq, &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
-                                
-                                matmul_q8(&mut xb[..dim as usize], &sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
-                                matmul_q8(&mut xb[dim as usize..(dim*2) as usize], &sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
-                                matmul_q8(&mut xb[(dim*2) as usize..(dim*3) as usize], &sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
-                            } else if p.q_type == QuantType::Q4_0 {
-                                quantize_q4(&mut sxq, &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
-                                
-                                matmul_q4(&mut xb[..dim as usize], &sxq, &w.wq_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
-                                matmul_q4(&mut xb[dim as usize..(dim*2) as usize], &sxq, &w.wk_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
-                                matmul_q4(&mut xb[(dim*2) as usize..(dim*3) as usize], &sxq, &w.wv_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
-                            }
+                        if p.q_type == QuantType::Q8_0 {
+                            quantize(&mut sxq, &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
+                            
+                            matmul_q8(&mut xb[..dim as usize], &sxq, &w.wq.as_quantized()[l as usize], dim as usize, dim as usize, gs as usize);
+                            matmul_q8(&mut xb[dim as usize..(dim*2) as usize], &sxq, &w.wk.as_quantized()[l as usize], dim as usize, dim as usize, gs as usize);
+                            matmul_q8(&mut xb[(dim*2) as usize..(dim*3) as usize], &sxq, &w.wv.as_quantized()[l as usize], dim as usize, dim as usize, gs as usize);
+                        } else if p.q_type == QuantType::Q4_0 {
+                            quantize_q4(&mut sxq, &embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
+                            
+                            matmul_q4(&mut xb[..dim as usize], &sxq, &w.wq.as_quantized()[l as usize], dim as usize, dim as usize, gs as usize);
+                            matmul_q4(&mut xb[dim as usize..(dim*2) as usize], &sxq, &w.wk.as_quantized()[l as usize], dim as usize, dim as usize, gs as usize);
+                            matmul_q4(&mut xb[(dim*2) as usize..(dim*3) as usize], &sxq, &w.wv.as_quantized()[l as usize], dim as usize, dim as usize, gs as usize);
                         }
                     }
                     
@@ -340,9 +316,9 @@ impl<'a> VisionTransformer<'a> {
                     let scale = f32x8::splat((head_size as f32).sqrt());
                     
                     for k in 0..n_simd {
-                        let wq_bias_vec = f32x8::from(&w.wq_bias[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
-                        let wk_bias_vec = f32x8::from(&w.wk_bias[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
-                        let wv_bias_vec = f32x8::from(&w.wv_bias[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
+                        let wq_bias_vec = f32x8::from(&w.wq_bias.as_float()[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
+                        let wk_bias_vec = f32x8::from(&w.wk_bias.as_float()[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
+                        let wv_bias_vec = f32x8::from(&w.wv_bias.as_float()[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
 
                         let mut xq_vec = f32x8::from(&xb[(k*8) as usize..(k*8+8) as usize]);
                         let mut xk_vec = f32x8::from(&xb[(dim+k*8) as usize..(dim+k*8+8) as usize]);
@@ -414,21 +390,19 @@ impl<'a> VisionTransformer<'a> {
             
             for i in 0..num_crops {
                 embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut((dim) as usize).enumerate().for_each( |(h, xb)| {
-                    unsafe {
-                        if !quantized {
-                            matmul(xb, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wo.assume_init()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
-                        } else {
-                            let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (dim) as usize], s: &mut vec![0.0; dim as usize]};
+                    if !quantized {
+                        matmul(xb, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.wo.as_float()[(l*dim*att_dim) as usize..(l*dim*att_dim + dim*att_dim) as usize], dim as usize, dim as usize);
+                    } else {
+                        let mut sxq = MutableQuantizedTensor { q: vec![0; (dim) as usize], s: vec![0.0; dim as usize]};
 
-                            if p.q_type == QuantType::Q8_0 {
-                                quantize(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
-                                
-                                matmul_q8(xb, &sxq, &w.wo_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
-                            } else if p.q_type == QuantType::Q4_0 {
-                                quantize_q4(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
-                                
-                                matmul_q4(xb, &sxq, &w.wo_quant.assume_init()[l as usize], dim as usize, dim as usize, gs as usize);
-                            }
+                        if p.q_type == QuantType::Q8_0 {
+                            quantize(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
+                            
+                            matmul_q8(xb, &sxq, &w.wo.as_quantized()[l as usize], dim as usize, dim as usize, gs as usize);
+                        } else if p.q_type == QuantType::Q4_0 {
+                            quantize_q4(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
+                            
+                            matmul_q4(xb, &sxq, &w.wo.as_quantized()[l as usize], dim as usize, dim as usize, gs as usize);
                         }
                     }
                     
@@ -436,7 +410,7 @@ impl<'a> VisionTransformer<'a> {
                     let n_simd = dim/8;
                     
                     for k in 0..n_simd {
-                        let wo_bias_vec = f32x8::from(&w.wo_bias[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
+                        let wo_bias_vec = f32x8::from(&w.wo_bias.as_float()[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
 
                         let mut xo_vec = f32x8::from(&xb[(k*8) as usize..(k*8+8) as usize]);
 
@@ -465,7 +439,7 @@ impl<'a> VisionTransformer<'a> {
             
             for i in 0..num_crops {
                 norm_embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut(dim as usize).enumerate().for_each( |(k, nemb)| {
-                    layernorm(nemb, &embeddings[(i*out_shape+k as u32*dim) as usize..(i*out_shape+k as u32*dim + p.dim) as usize], &w.layer_norm2[(l*dim) as usize..(l*dim + dim) as usize], &w.layer_norm2_bias[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.layernorm_eps);
+                    layernorm(nemb, &embeddings[(i*out_shape+k as u32*dim) as usize..(i*out_shape+k as u32*dim + p.dim) as usize], &w.layer_norm2.as_float()[(l*dim) as usize..(l*dim + dim) as usize], &w.layer_norm2_bias.as_float()[(l*dim) as usize..(l*dim + dim) as usize], dim as usize, p.layernorm_eps);
                 });
             }
             
@@ -475,21 +449,19 @@ impl<'a> VisionTransformer<'a> {
                 embeddings[(i*out_shape) as usize..(i*out_shape + out_shape) as usize].par_chunks_mut((dim) as usize).enumerate().for_each( |(h, xb)| {
                     let mut hidden_emb = vec![0.0; hidden_dim as usize];
 
-                    unsafe {
-                        if !quantized {
-                            matmul(&mut hidden_emb, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.w1.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize], dim as usize, hidden_dim as usize);
-                        } else {
-                            let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (dim) as usize], s: &mut vec![0.0; dim as usize]};
+                    if !quantized {
+                        matmul(&mut hidden_emb, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], &w.w1.as_float()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize], dim as usize, hidden_dim as usize);
+                    } else {
+                        let mut sxq = MutableQuantizedTensor { q: vec![0; (dim) as usize], s: vec![0.0; dim as usize]};
 
-                            if p.q_type == QuantType::Q8_0 {
-                                quantize(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
-                                
-                                matmul_q8(&mut hidden_emb, &sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
-                            } else if p.q_type == QuantType::Q4_0 {
-                                quantize_q4(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
-                                
-                                matmul_q4(&mut hidden_emb, &sxq, &w.w1_quant.assume_init()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
-                            }
+                        if p.q_type == QuantType::Q8_0 {
+                            quantize(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
+                            
+                            matmul_q8(&mut hidden_emb, &sxq, &w.w1.as_quantized()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
+                        } else if p.q_type == QuantType::Q4_0 {
+                            quantize_q4(&mut sxq, &norm_embeddings[(i*out_shape+(h as u32*dim)) as usize..(i*out_shape+(h as u32*dim) + dim) as usize], dim as usize, gs);
+                            
+                            matmul_q4(&mut hidden_emb, &sxq, &w.w1.as_quantized()[l as usize], dim as usize, hidden_dim as usize, gs as usize);
                         }
                     }
                     
@@ -497,7 +469,7 @@ impl<'a> VisionTransformer<'a> {
                     let mut n_simd = hidden_dim/8;
                     
                     for k in 0..n_simd {
-                        let w1_bias_vec = f32x8::from(&w.w1_bias[(l*hidden_dim+k*8) as usize..(l*hidden_dim+k*8+8) as usize]);
+                        let w1_bias_vec = f32x8::from(&w.w1_bias.as_float()[(l*hidden_dim+k*8) as usize..(l*hidden_dim+k*8+8) as usize]);
 
                         let mut x1_vec = f32x8::from(&hidden_emb[(k*8) as usize..(k*8+8) as usize]);
 
@@ -513,28 +485,26 @@ impl<'a> VisionTransformer<'a> {
                         }
                     }
                     
-                    unsafe {
-                        if !quantized {
-                            matmul(xb, &hidden_emb, &w.w2.assume_init()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize], hidden_dim as usize, dim as usize);
-                        } else {
-                            let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (hidden_dim) as usize], s: &mut vec![0.0; hidden_dim as usize]};
+                    if !quantized {
+                        matmul(xb, &hidden_emb, &w.w2.as_float()[(l*dim*hidden_dim) as usize..(l*dim*hidden_dim + dim*hidden_dim) as usize], hidden_dim as usize, dim as usize);
+                    } else {
+                        let mut sxq = MutableQuantizedTensor { q: vec![0; (hidden_dim) as usize], s: vec![0.0; hidden_dim as usize]};
 
-                            if p.q_type == QuantType::Q8_0 {
-                                quantize(&mut sxq, &hidden_emb, hidden_dim as usize, gs);
-                                
-                                matmul_q8(xb, &sxq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, dim as usize, gs as usize);
-                            } else if p.q_type == QuantType::Q4_0 {
-                                quantize_q4(&mut sxq, &hidden_emb, hidden_dim as usize, gs);
-                                
-                                matmul_q4(xb, &sxq, &w.w2_quant.assume_init()[l as usize], hidden_dim as usize, dim as usize, gs as usize);
-                            }
+                        if p.q_type == QuantType::Q8_0 {
+                            quantize(&mut sxq, &hidden_emb, hidden_dim as usize, gs);
+                            
+                            matmul_q8(xb, &sxq, &w.w2.as_quantized()[l as usize], hidden_dim as usize, dim as usize, gs as usize);
+                        } else if p.q_type == QuantType::Q4_0 {
+                            quantize_q4(&mut sxq, &hidden_emb, hidden_dim as usize, gs);
+                            
+                            matmul_q4(xb, &sxq, &w.w2.as_quantized()[l as usize], hidden_dim as usize, dim as usize, gs as usize);
                         }
                     }
 
                     n_simd = dim/8;
                     
                     for k in 0..n_simd {
-                        let w2_bias_vec = f32x8::from(&w.w2_bias[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
+                        let w2_bias_vec = f32x8::from(&w.w2_bias.as_float()[(l*dim+k*8) as usize..(l*dim+k*8+8) as usize]);
 
                         let mut x2_vec = f32x8::from(&xb[(k*8) as usize..(k*8+8) as usize]);
 
@@ -573,22 +543,5 @@ impl<'a> VisionTransformer<'a> {
         }
          
         (out_patches, new_shape)
-    }
-}
-
-// Deallocate fields created with Box::leak
-impl<'a> Drop for VisionTransformer<'a> {
-    fn drop(&mut self) {
-        if self.args.q_type != QuantType::None {
-            unsafe {
-                let layer_weights_layout = Layout::array::<QuantizedTensor>(self.args.n_layers as usize).unwrap();
-                dealloc(self.weights.wq_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
-                dealloc(self.weights.wk_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
-                dealloc(self.weights.wv_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
-                dealloc(self.weights.wo_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
-                dealloc(self.weights.w1_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
-                dealloc(self.weights.w2_quant.assume_init().as_ptr() as *mut u8, layer_weights_layout);
-            }
-        }
     }
 }

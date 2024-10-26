@@ -1,10 +1,6 @@
-use crate::quantization::{QuantizedTensor, QuantType, MutableQuantizedTensor, quantize, quantize_q4};
+use crate::quantization::{Tensor, QuantType, MutableQuantizedTensor, quantize, quantize_q4};
 use crate::transformer::{init_param, init_param_quant};
 use crate::functional::{matmul, matmul_q8, matmul_q4, concat};
-
-use std::mem::MaybeUninit;
-use std::alloc::dealloc;
-use std::alloc::Layout;
 
 use image::imageops::resize;
 use image::{ImageBuffer, Rgb};
@@ -148,16 +144,13 @@ struct ProcessorArgs {
 }
 
 struct ProcessorWeights<'a> {
-    glb_gn: &'a [f32],
-    sub_gn: &'a [f32],
+    glb_gn: Tensor<'a>,
+    sub_gn: Tensor<'a>,
     
-    img_projection0: MaybeUninit<&'a [f32]>,
-    img_projection0_bias: &'a [f32],
-    img_projection1: MaybeUninit<&'a [f32]>,
-    img_projection1_bias: &'a [f32],
-    
-    img_projection0_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
-    img_projection1_quant: MaybeUninit<&'a [QuantizedTensor<'a>]>,
+    img_projection0: Tensor<'a>,
+    img_projection0_bias: Tensor<'a>,
+    img_projection1: Tensor<'a>,
+    img_projection1_bias: Tensor<'a>,
 }
 
 pub struct PHI3VProcessor<'a> {
@@ -171,7 +164,7 @@ impl<'a> PHI3VProcessor<'a> {
 
         assert!(head.is_empty(), "Data was not aligned");
         
-        let cfg = &body[0];
+        let cfg = body[0];
 
         let mut offset: usize = 128;
 
@@ -191,34 +184,30 @@ impl<'a> PHI3VProcessor<'a> {
             let weights = ProcessorWeights {
                 glb_gn,
                 sub_gn,
-                img_projection0: MaybeUninit::new(img_projection0),
-                img_projection1: MaybeUninit::new(img_projection1),
-                img_projection0_quant: MaybeUninit::uninit(),
-                img_projection1_quant: MaybeUninit::uninit(),
+                img_projection0,
+                img_projection1,
                 img_projection0_bias,
                 img_projection1_bias
             };
 
             return PHI3VProcessor {
                 weights,
-                args: *cfg
+                args: cfg
             }
         }
 
         println!("Loading processor weights...");
 
-        let img_projection0_quant = init_param_quant(data, &mut offset, 1, text_dim * hidden_dim, cfg.group_size, cfg.q_type);
-        let img_projection1_quant = init_param_quant(data, &mut offset, 1, text_dim * text_dim, cfg.group_size, cfg.q_type);
+        let img_projection0 = init_param_quant(data, &mut offset, 1, text_dim * hidden_dim, cfg.group_size, cfg.q_type);
+        let img_projection1 = init_param_quant(data, &mut offset, 1, text_dim * text_dim, cfg.group_size, cfg.q_type);
         let img_projection0_bias = init_param(data, &mut offset, 1, text_dim);
         let img_projection1_bias = init_param(data, &mut offset, 1, text_dim);
         
         let weights = ProcessorWeights {
             glb_gn,
             sub_gn,
-            img_projection0: MaybeUninit::uninit(),
-            img_projection1: MaybeUninit::uninit(),
-            img_projection0_quant: MaybeUninit::new(img_projection0_quant),
-            img_projection1_quant: MaybeUninit::new(img_projection1_quant),
+            img_projection0,
+            img_projection1,
             img_projection0_bias,
             img_projection1_bias
         };
@@ -227,7 +216,7 @@ impl<'a> PHI3VProcessor<'a> {
 
         return PHI3VProcessor {
             weights,
-            args: cfg.clone()
+            args: cfg
         }
     }
     
@@ -239,10 +228,10 @@ impl<'a> PHI3VProcessor<'a> {
         let quantized = p.q_type != QuantType::None;
 
         let mut global_features = PHI3VProcessor::reshape_hd_patches_2x2merge(&out_patches[..new_shape as usize], 1, 1);
-        PHI3VProcessor::add_image_newline(&mut global_features, w.sub_gn, patch_side as usize, patch_side as usize, hidden_dim as usize);
+        PHI3VProcessor::add_image_newline(&mut global_features, w.sub_gn.as_float(), patch_side as usize, patch_side as usize, hidden_dim as usize);
         
         let mut sub_image_features = PHI3VProcessor::reshape_hd_patches_2x2merge(&out_patches[new_shape as usize..], h_crop as usize, w_crop as usize);
-        PHI3VProcessor::add_image_newline(&mut sub_image_features, w.sub_gn, (h_crop*patch_side) as usize, (w_crop*patch_side) as usize, hidden_dim as usize);
+        PHI3VProcessor::add_image_newline(&mut sub_image_features, w.sub_gn.as_float(), (h_crop*patch_side) as usize, (w_crop*patch_side) as usize, hidden_dim as usize);
 
         let sub_len = sub_image_features.len();
         let glb_len = global_features.len();
@@ -250,7 +239,7 @@ impl<'a> PHI3VProcessor<'a> {
         let mut out_embeddings = Vec::with_capacity(sub_len + glb_len + hidden_dim as usize);
 
         out_embeddings.extend(sub_image_features);
-        out_embeddings.extend(w.glb_gn);
+        out_embeddings.extend(w.glb_gn.as_float());
         out_embeddings.extend(global_features);
         
         let num_embeds = (h_crop * patch_side) * ((w_crop * patch_side + 1)) + (patch_side*(patch_side + 1)) + 1;
@@ -263,21 +252,19 @@ impl<'a> PHI3VProcessor<'a> {
         out_features.par_chunks_mut(p.text_dim as usize).enumerate().for_each( |(h, xb)| {
             let mut hidden_emb = vec![0.0; p.text_dim as usize];
 
-            unsafe {
-                if !quantized {
-                    matmul(&mut hidden_emb, &out_embeddings[((h as u32*hidden_dim)) as usize..((h as u32*hidden_dim) + hidden_dim) as usize], &w.img_projection0.assume_init(), hidden_dim as usize, p.text_dim as usize);
-                } else {
-                    let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (hidden_dim) as usize], s: &mut vec![0.0; hidden_dim as usize]};
+            if !quantized {
+                matmul(&mut hidden_emb, &out_embeddings[((h as u32*hidden_dim)) as usize..((h as u32*hidden_dim) + hidden_dim) as usize], &w.img_projection0.as_float(), hidden_dim as usize, p.text_dim as usize);
+            } else {
+                let mut sxq = MutableQuantizedTensor { q: vec![0; (hidden_dim) as usize], s: vec![0.0; hidden_dim as usize]};
 
-                    if p.q_type == QuantType::Q8_0 {
-                        quantize(&mut sxq, &out_embeddings[((h as u32*hidden_dim)) as usize..((h as u32*hidden_dim) + hidden_dim) as usize], hidden_dim as usize, p.group_size);
-                        
-                        matmul_q8(&mut hidden_emb, &sxq, &w.img_projection0_quant.assume_init()[0], hidden_dim as usize, p.text_dim as usize, p.group_size as usize);
-                    } else if p.q_type == QuantType::Q4_0 {
-                        quantize_q4(&mut sxq, &out_embeddings[((h as u32*hidden_dim)) as usize..((h as u32*hidden_dim) + hidden_dim) as usize], hidden_dim as usize, p.group_size);
-                        
-                        matmul_q4(&mut hidden_emb, &sxq, &w.img_projection0_quant.assume_init()[0], hidden_dim as usize, p.text_dim as usize, p.group_size as usize);
-                    }
+                if p.q_type == QuantType::Q8_0 {
+                    quantize(&mut sxq, &out_embeddings[((h as u32*hidden_dim)) as usize..((h as u32*hidden_dim) + hidden_dim) as usize], hidden_dim as usize, p.group_size);
+                    
+                    matmul_q8(&mut hidden_emb, &sxq, &w.img_projection0.as_quantized()[0], hidden_dim as usize, p.text_dim as usize, p.group_size as usize);
+                } else if p.q_type == QuantType::Q4_0 {
+                    quantize_q4(&mut sxq, &out_embeddings[((h as u32*hidden_dim)) as usize..((h as u32*hidden_dim) + hidden_dim) as usize], hidden_dim as usize, p.group_size);
+                    
+                    matmul_q4(&mut hidden_emb, &sxq, &w.img_projection0.as_quantized()[0], hidden_dim as usize, p.text_dim as usize, p.group_size as usize);
                 }
             }
             
@@ -285,7 +272,7 @@ impl<'a> PHI3VProcessor<'a> {
             let mut n_simd = p.text_dim/8;
             
             for k in 0..n_simd {
-                let w1_bias_vec = f32x8::from(&w.img_projection0_bias[(k*8) as usize..(k*8+8) as usize]);
+                let w1_bias_vec = f32x8::from(&w.img_projection0_bias.as_float()[(k*8) as usize..(k*8+8) as usize]);
 
                 let mut x1_vec = f32x8::from(&hidden_emb[(k*8) as usize..(k*8+8) as usize]);
 
@@ -303,28 +290,26 @@ impl<'a> PHI3VProcessor<'a> {
                 }
             }
             
-            unsafe {
-                if !quantized {
-                    matmul(xb, &hidden_emb, &w.img_projection1.assume_init(), p.text_dim as usize, p.text_dim as usize);
-                } else {
-                    let mut sxq = MutableQuantizedTensor { q: &mut vec![0; (p.text_dim) as usize], s: &mut vec![0.0; p.text_dim as usize]};
+            if !quantized {
+                matmul(xb, &hidden_emb, &w.img_projection1.as_float(), p.text_dim as usize, p.text_dim as usize);
+            } else {
+                let mut sxq = MutableQuantizedTensor { q: vec![0; (p.text_dim) as usize], s: vec![0.0; p.text_dim as usize]};
 
-                    if p.q_type == QuantType::Q8_0 {
-                        quantize(&mut sxq, &hidden_emb, p.text_dim as usize, p.group_size);
-                        
-                        matmul_q8(xb, &sxq, &w.img_projection1_quant.assume_init()[0], p.text_dim as usize, p.text_dim as usize, p.group_size as usize);
-                    } else if p.q_type == QuantType::Q4_0 {
-                        quantize_q4(&mut sxq, &hidden_emb, p.text_dim as usize, p.group_size);
-                        
-                        matmul_q4(xb, &sxq, &w.img_projection1_quant.assume_init()[0], p.text_dim as usize, p.text_dim as usize, p.group_size as usize);
-                    }
+                if p.q_type == QuantType::Q8_0 {
+                    quantize(&mut sxq, &hidden_emb, p.text_dim as usize, p.group_size);
+                    
+                    matmul_q8(xb, &sxq, &w.img_projection1.as_quantized()[0], p.text_dim as usize, p.text_dim as usize, p.group_size as usize);
+                } else if p.q_type == QuantType::Q4_0 {
+                    quantize_q4(&mut sxq, &hidden_emb, p.text_dim as usize, p.group_size);
+                    
+                    matmul_q4(xb, &sxq, &w.img_projection1.as_quantized()[0], p.text_dim as usize, p.text_dim as usize, p.group_size as usize);
                 }
             }
 
             n_simd = p.text_dim/8;
             
             for k in 0..n_simd {
-                let w2_bias_vec = f32x8::from(&w.img_projection1_bias[(k*8) as usize..(k*8+8) as usize]);
+                let w2_bias_vec = f32x8::from(&w.img_projection1_bias.as_float()[(k*8) as usize..(k*8+8) as usize]);
 
                 let mut x2_vec = f32x8::from(&xb[(k*8) as usize..(k*8+8) as usize]);
 
@@ -480,18 +465,6 @@ impl<'a> PHI3VProcessor<'a> {
     fn add_image_newline(img: &mut Vec<f32>, separator: &[f32], h: usize, w: usize, dim: usize) {
         for i in 0..h {
             PHI3VProcessor::insert_slice_at_position(img, i*w*dim + i*dim + w*dim, separator);
-        }
-    }
-}
-
-impl<'a> Drop for PHI3VProcessor<'a> {
-    fn drop(&mut self) {
-        if self.args.q_type != QuantType::None {
-            unsafe {
-                let weights_layout = Layout::array::<QuantizedTensor>(1).unwrap();
-                dealloc(self.weights.img_projection0_quant.assume_init().as_ptr() as *mut u8, weights_layout);
-                dealloc(self.weights.img_projection1_quant.assume_init().as_ptr() as *mut u8, weights_layout);
-            }
         }
     }
 }

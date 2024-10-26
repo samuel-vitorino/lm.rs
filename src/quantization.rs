@@ -5,13 +5,36 @@ pub enum QuantType {
     Q4_0 = 2,
 }
 
+pub enum Tensor<'a> {
+    FloatSlice(&'a [f32]),
+    FloatVec(Vec<f32>),
+    Quantized(Vec<QuantizedTensor<'a>>),
+}
+
+impl<'a> Tensor<'a> {
+    pub fn as_float(&'a self) -> &'a [f32] {
+        match self {
+            Tensor::FloatSlice(data) => data,
+            Tensor::FloatVec(data) => data,
+            Tensor::Quantized(_) => panic!("Tried to access float tensor that is quantized"),
+        }
+    }
+
+    pub fn as_quantized(&'a self) -> &'a [QuantizedTensor<'a>] {
+        match self {
+            Tensor::Quantized(data) => data,
+            _ => panic!("Tried to access quantized tensor that is not quantized"),
+        }
+    }
+}
+
 pub struct QuantizedTensor<'a>{
     pub q: &'a [i8],
     pub s: &'a [f32],
 }
-pub struct MutableQuantizedTensor<'a>{
-    pub q: &'a mut [i8],
-    pub s: &'a mut [f32],
+pub struct MutableQuantizedTensor {
+    pub q: Vec<i8>,
+    pub s: Vec<f32>,
 }
 
 fn unpack(value: i8) -> (i8, i8) {
@@ -22,7 +45,7 @@ fn unpack(value: i8) -> (i8, i8) {
     (a, b)
 }
 
-pub fn dequantize(qx: &QuantizedTensor, x: &mut [f32], n: usize, gs: u32, q_type: QuantType) {
+pub fn dequantize(qx: &QuantizedTensor, x: &mut  [f32], n: usize, gs: u32, q_type: QuantType) {
     match q_type {
         QuantType::Q8_0 => { 
             for (i, value) in x.iter_mut().enumerate().take(n) {
@@ -38,7 +61,7 @@ pub fn dequantize(qx: &QuantizedTensor, x: &mut [f32], n: usize, gs: u32, q_type
             }
         },
         _ => (),
-    }  
+    };
 }
 
 pub fn quantize(qx: &mut MutableQuantizedTensor, x: & [f32], n: usize, gs: u32) {
