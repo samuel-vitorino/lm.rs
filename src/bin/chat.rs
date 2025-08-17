@@ -1,7 +1,7 @@
 use lmrs::transformer::ModelType;
 use lmrs::transformer::Transformer;
 use lmrs::tokenizer::Tokenizer;
-use lmrs::sampler::Sampler;
+use lmrs::sampler::TemperatureSampler;
 
 #[cfg(feature = "multimodal")]
 use lmrs::vision::VisionTransformer;
@@ -132,7 +132,7 @@ fn main() {
         }
     };
 
-    let mut sampler = Sampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
+    let mut sampler = TemperatureSampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
 
     let mut user_turn = true;
     let mut user_idx: usize = 0;

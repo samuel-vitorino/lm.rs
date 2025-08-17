@@ -7,11 +7,11 @@ struct ProbIndex {
     index: u32,
 }
 
-pub trait SamplerSlot {
+pub trait Sampler {
     fn sample(&mut self, logits: &mut [f32]) -> u32;
 }
 
-pub struct Sampler {
+pub struct TemperatureSampler {
     vocab_size: u32,
     probindex: Vec<ProbIndex>,
     temperature: f32,
@@ -19,9 +19,9 @@ pub struct Sampler {
     seed: u64,
 }
 
-impl Sampler {
-    pub fn new(vocab_size: u32, temperature: f32, top_p: f32, seed: u64) -> Sampler {
-        Sampler {
+impl TemperatureSampler {
+    pub fn new(vocab_size: u32, temperature: f32, top_p: f32, seed: u64) -> TemperatureSampler {
+        TemperatureSampler {
             vocab_size,
             probindex: vec![
                 ProbIndex {
@@ -88,7 +88,7 @@ impl Sampler {
             }
         }
 
-        self.probindex.sort_by(Sampler::compare);
+        self.probindex.sort_by(TemperatureSampler::compare);
 
         let mut cumulative_prob: f32 = 0.0;
 
@@ -115,12 +115,12 @@ impl Sampler {
         self.probindex[last_idx].index
     }
 }
-impl SamplerSlot for Sampler {
+impl Sampler for TemperatureSampler {
     fn sample(&mut self, logits: &mut [f32]) -> u32 {
         let next: u32;
 
         if self.temperature == 0.0f32 {
-            next = Sampler::sample_argmax(logits);
+            next = TemperatureSampler::sample_argmax(logits);
         } else {
             for q in 0..self.vocab_size {
                 logits[q as usize] /= self.temperature;
@@ -131,7 +131,7 @@ impl SamplerSlot for Sampler {
             let rand: f32 = random_f32(self.seed);
 
             if self.top_p <= 0.0 || self.top_p >= 1.0 {
-                next = Sampler::sample_mult(logits, rand);
+                next = TemperatureSampler::sample_mult(logits, rand);
             } else {
                 next = self.sample_topp(logits, self.top_p, rand);
             }

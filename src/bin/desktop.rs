@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use dioxus_desktop::Config;
-use lmrs::sampler::Sampler;
+use lmrs::sampler::TemperatureSampler;
 use lmrs::tokenizer::Tokenizer;
 use lmrs::transformer::ModelType;
 use lmrs::transformer::Transformer;
@@ -47,7 +47,7 @@ struct Context<'a> {
     model: Transformer<'a>,
     prompt_tokens: Vec<u32>,
     tokenizer: Tokenizer,
-    sampler: Sampler,
+    sampler: TemperatureSampler,
 }
 
 impl<'a> Context<'a> {
@@ -181,7 +181,7 @@ fn app() -> Element {
                 }
             };
 
-            let sampler = Sampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
+            let sampler = TemperatureSampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
 
             let mut context = Context {
                 user_idx: 0,
