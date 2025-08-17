@@ -13,7 +13,7 @@ use base64::prelude::*;
 use lmrs::transformer::Transformer;
 use lmrs::transformer::ModelType;
 use lmrs::tokenizer::Tokenizer;
-use lmrs::sampler::Sampler;
+use lmrs::sampler::TemperatureSampler;
 
 #[cfg(feature = "backend-multimodal")]
 use lmrs::vision::VisionTransformer;
@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
                 }
             }
 
-            let mut sampler = Sampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
+            let mut sampler = TemperatureSampler::new(model.args.vocab_size, args.temperature, args.top_p, seed);
             let mut pos = 0;
  
             while let Some(msg) = read.next().await {

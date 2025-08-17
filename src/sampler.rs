@@ -1,5 +1,5 @@
-use crate::functional::softmax;
 use crate::functional::random_f32;
+use crate::functional::softmax;
 
 #[derive(Debug, Copy, Clone)]
 struct ProbIndex {
@@ -7,7 +7,11 @@ struct ProbIndex {
     index: u32,
 }
 
-pub struct Sampler {
+pub trait Sampler {
+    fn sample(&mut self, logits: &mut [f32]) -> u32;
+}
+
+pub struct TemperatureSampler {
     vocab_size: u32,
     probindex: Vec<ProbIndex>,
     temperature: f32,
@@ -15,17 +19,23 @@ pub struct Sampler {
     seed: u64,
 }
 
-impl Sampler {
-    pub fn new(vocab_size: u32, temperature: f32, top_p: f32, seed: u64) -> Sampler {
-        Sampler {
+impl TemperatureSampler {
+    pub fn new(vocab_size: u32, temperature: f32, top_p: f32, seed: u64) -> TemperatureSampler {
+        TemperatureSampler {
             vocab_size,
-            probindex: vec![ProbIndex { prob: 0.0, index: 0 }; vocab_size as usize],
+            probindex: vec![
+                ProbIndex {
+                    prob: 0.0,
+                    index: 0
+                };
+                vocab_size as usize
+            ],
             temperature,
             top_p,
-            seed
+            seed,
         }
     }
-    
+
     fn sample_argmax(probabilities: &[f32]) -> u32 {
         let mut max_i: u32 = 0;
         let mut max_p = probabilities[0];
@@ -68,7 +78,7 @@ impl Sampler {
         let n = probabilities.len();
         let mut n0 = 0;
 
-        let  cutoff: f32 = (1.0f32 - top_p) / (n - 1) as f32;
+        let cutoff: f32 = (1.0f32 - top_p) / (n - 1) as f32;
 
         for (i, p) in probabilities.iter().enumerate() {
             if *p >= cutoff {
@@ -77,8 +87,8 @@ impl Sampler {
                 n0 += 1;
             }
         }
-        
-        self.probindex.sort_by(Sampler::compare);
+
+        self.probindex.sort_by(TemperatureSampler::compare);
 
         let mut cumulative_prob: f32 = 0.0;
 
@@ -95,7 +105,7 @@ impl Sampler {
         let r = rand * cumulative_prob;
         let mut cdf: f32 = 0.0;
 
-        for i in 0..last_idx+1 {
+        for i in 0..last_idx + 1 {
             cdf += self.probindex[i].prob;
             if r < cdf {
                 return self.probindex[i].index;
@@ -104,22 +114,24 @@ impl Sampler {
 
         self.probindex[last_idx].index
     }
-
-
-    pub fn sample(&mut self, logits: &mut [f32]) -> u32 {
+}
+impl Sampler for TemperatureSampler {
+    fn sample(&mut self, logits: &mut [f32]) -> u32 {
         let next: u32;
-        
+
         if self.temperature == 0.0f32 {
-            next = Sampler::sample_argmax(logits);
+            next = TemperatureSampler::sample_argmax(logits);
         } else {
-            for q in 0..self.vocab_size { logits[q as usize] /= self.temperature; }
+            for q in 0..self.vocab_size {
+                logits[q as usize] /= self.temperature;
+            }
 
             softmax(logits);
 
             let rand: f32 = random_f32(self.seed);
 
             if self.top_p <= 0.0 || self.top_p >= 1.0 {
-                next = Sampler::sample_mult(logits, rand);
+                next = TemperatureSampler::sample_mult(logits, rand);
             } else {
                 next = self.sample_topp(logits, self.top_p, rand);
             }
